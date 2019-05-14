@@ -23,11 +23,12 @@
 from micropython import const
 from adafruit_bus_device.i2c_device import I2CDevice
 
-
+# pylint: disable=bad-whitespace
 _CONTROL    = const(0x80)
 _AUTOINCR   = const(0xA2)
 
 _NUM_LEDS   = const(16)
+# pylint: enable=bad-whitespace
 
 class TLC59116:
 
@@ -40,15 +41,16 @@ class TLC59116:
         with self.i2c_device as i2c:
             i2c.write(bytearray([address]+xbytes))
 
-    def configure(self, 
-        auto_increment=True, 
-        allcall=True, 
-        osc_off=False, 
-        pwm=0xA0, freq=0, 
-        sub1=False, sub2=False, sub3=False,
-        change_on_ack=False, clear_errors=False, group_blink=False):
+    # pylint: disable=too-many-arguments
+    def configure(self,
+                  auto_increment=True,
+                  allcall=True,
+                  osc_off=False,
+                  pwm=0xA0, freq=0,
+                  sub1=False, sub2=False, sub3=False,
+                  change_on_ack=False, clear_errors=False, group_blink=False):
 
-        data =  []
+        data = []
 
         ## Configure MODE1 register
         data += [auto_increment << 7 | \
