@@ -55,7 +55,7 @@ while True:
         if speed == 0b10:
             color = (0,255,0)
         if speed == 0b11:
-            color = (255,0,0)
+            color = (255,255,255)
 
         led_data.rgb(idx, color, update=False)
 
