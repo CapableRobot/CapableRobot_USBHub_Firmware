@@ -93,6 +93,8 @@ class USBHub:
         self.pin_hen.switch_to_output(value=True)
 
         self.remap = [1, 2, 3, 4]
+        self.vlim = None
+        self.vlogic = None
 
         self.reset()
         self.i2c_device = I2CDevice(i2c_bus, addr)
@@ -256,3 +258,18 @@ class USBHub:
 
         self._write_register(_REMAP_12, [port12])
         self._write_register(_REMAP_34, [port34])
+
+    @property
+    def rails(self):
+        vlim, vlogic = None, None
+
+        if self.vlim is not None:
+            voltage = float(self.vlim.value) / 65535.0 * self.vlim.reference_voltage 
+            vlim = voltage * (1870 + 20000) / 1870
+        
+        if self.vlogic is not None:
+            voltage = float(self.vlogic.value) / 65535.0 * self.vlogic.reference_voltage 
+            vlogic = voltage * 2
+
+        return vlim, vlogic
+        

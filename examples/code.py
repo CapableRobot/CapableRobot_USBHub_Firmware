@@ -1,8 +1,10 @@
+import time
+
 import digitalio
+import analogio
 import board
 import busio
 import supervisor
-import time
 
 import capablerobot_usbhub
 import capablerobot_tlc59116
@@ -18,6 +20,9 @@ led2.switch_to_output(value=True)
 led3 = digitalio.DigitalInOut(board.LED3)
 led3.switch_to_output(value=True)
 
+vlim = analogio.AnalogIn(board.ANVLIM)
+vcc = analogio.AnalogIn(board.AN5V)
+
 BEAT = 0.05
 
 def stdout(*args):
@@ -31,7 +36,8 @@ i2c2 = busio.I2C(board.SCL2, board.SDA2)
 
 stdout("... configuring hub ...")
 usb = capablerobot_usbhub.USBHub(i2c2)
-
+usb.vlim = vlim
+usb.vlogic = vcc
 
 stdout("... configuring leds ...")
 BRIGHT   = 20
@@ -44,7 +50,8 @@ while True:
 
     led3.value = not led3.value
 
-    print(time.monotonic() - boot_time, usb.speeds)
+    # stdout(time.monotonic() - boot_time, usb.speeds)
+    stdout(time.monotonic() - boot_time, usb.rails)
 
     ## Set the data leds based on the detected per-port speeds
     for idx, speed in enumerate(usb.speeds):
