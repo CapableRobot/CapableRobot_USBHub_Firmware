@@ -68,6 +68,8 @@ class USBHub:
         self.pin_hen = digitalio.DigitalInOut(board.USBHEN)
         self.pin_hen.switch_to_output(value=True)
 
+        self.remap = [1,2,3,4]
+
         self.reset()
         self.i2c_device = I2CDevice(i2c_bus, addr)
 
@@ -128,6 +130,8 @@ class USBHub:
             ## Access the part of memory where our data is
             i2c.write_then_readinto(bytearray([0x00, 0x06]), inbuf, stop=False)
 
+        ## First byte is the length of the rest of the message.  
+        ## We don't want to return that to the caller
         return inbuf[1:length+1]
 
 
@@ -146,6 +150,23 @@ class USBHub:
     @property
     def product_id(self):
         return bytearry_to_int(self._read_register(_PRODUCT_ID))
+
+    @property
+    def speeds(self):
+        conn  = bytearry_to_int(self._read_register(_CONNECTION))
+        speed = bytearry_to_int(self._read_register(_DEVICE_SPEED))
+        
+        out = [0]*5
+
+        ## Have to follow logical to physical remapping
+        for idx, port in enumerate(self.remap):
+            out[port] = (speed >> (idx*2)) & 0b11
+
+        ## Upstream port is not in the speed register, so take data from
+        ## the connection register.  Unfortunately, no way to know speed.
+        out[0] = (conn & 0b1)*3
+        
+        return out
 
     def attach(self):
         ## 0xAA 0x55 : Exit SOC_CONFIG and Enter HUB_CONFIG stage
@@ -204,6 +225,8 @@ class USBHub:
         self._write_register(_HUB_CONFIG_3, [value])
 
     def set_port_remap(self, ports=[1,2,3,4]):
+        self.remap = ports
+
         port12 = ((ports[1] << 4) & 0xFF) | (ports[0] & 0xFF)
         port34 = ((ports[3] << 4) & 0xFF) | (ports[2] & 0xFF)
 
