@@ -20,13 +20,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import board
-import digitalio
 import time
 
+import board
+import digitalio
 from micropython import const
+
 from adafruit_bus_device.i2c_device import I2CDevice
 
+# pylint: disable=bad-whitespace
 _REVISION       = const(0x0000)
 _VENDOR_ID      = const(0x3000)
 _PRODUCT_ID     = const(0x3002)
@@ -48,8 +50,8 @@ _POWER_SELECT_2 = const(0x3C04)
 _POWER_SELECT_3 = const(0x3C08)
 _POWER_SELECT_4 = const(0x3C0C)
 
-
 _CFG_REG_CMD    = bytearray([0x99, 0x37, 0x00])
+# pylint: enable=bad-whitespace
 
 def _register_length(addr):
     if addr in [_REVISION]:
@@ -64,14 +66,14 @@ def bytearry_to_int(b, lsb_first=True):
     if lsb_first:
         x = 0
         shift = 0
-        for c in b:
-            x |= (c << shift*8)
+        for char in b:
+            x |= (char << shift*8)
             shift += 1
     else:
         x = 0
-        for c in b:
+        for char in b:
             x <<= 8
-            x |= c
+            x |= char
     return x
 
 def set_bit(value, bit):
@@ -90,7 +92,7 @@ class USBHub:
         self.pin_hen = digitalio.DigitalInOut(board.USBHEN)
         self.pin_hen.switch_to_output(value=True)
 
-        self.remap = [1,2,3,4]
+        self.remap = [1, 2, 3, 4]
 
         self.reset()
         self.i2c_device = I2CDevice(i2c_bus, addr)
@@ -110,8 +112,8 @@ class USBHub:
 
         ## Prepare the pre-amble
         out = [
-            0x00, 
-            0x00, 
+            0x00,
+            0x00,
             length, # Length of rest of packet
             0x00,   # Write configuration register
             len(xbytes) & 0xFF, # Will be writing N bytes (later)
@@ -122,7 +124,7 @@ class USBHub:
         with self.i2c_device as i2c:
             ## Write the pre-amble and then the payload
             i2c.write(bytearray(out+xbytes))
-            
+
             ## Execute the Configuration Register Access command
             i2c.write(_CFG_REG_CMD)
 
@@ -131,8 +133,8 @@ class USBHub:
 
         ## Prepare the pre-amble
         out = [
-            0x00, 
-            0x00, 
+            0x00,
+            0x00,
             0x06, # Length of rest of packet
             0x01, # Read configuration register
             length & 0xFF, # Will be reading N bytes (later)
@@ -140,27 +142,27 @@ class USBHub:
             (address >> 8) & 0xFF, address & 0xFF
         ]
 
-        inbuf  = bytearray(length+1)
+        inbuf = bytearray(length+1)
 
         with self.i2c_device as i2c:
-            ## Write the pre-amble 
+            ## Write the pre-amble
             i2c.write(bytearray(out))
-        
+
             ## Execute the Configuration Register Access command
             i2c.write(_CFG_REG_CMD)
-        
+
             ## Access the part of memory where our data is
             i2c.write_then_readinto(bytearray([0x00, 0x06]), inbuf, stop=False)
 
-        ## First byte is the length of the rest of the message.  
+        ## First byte is the length of the rest of the message.
         ## We don't want to return that to the caller
         return inbuf[1:length+1]
 
-
+    # pylint: disable=invalid-name
     @property
     def id(self):
         buf = self._read_register(_REVISION)
-        device_id   = (buf[3] << 8) + buf[2]
+        device_id = (buf[3] << 8) + buf[2]
         revision_id = buf[0]
 
         return device_id, revision_id
@@ -175,9 +177,9 @@ class USBHub:
 
     @property
     def speeds(self):
-        conn  = bytearry_to_int(self._read_register(_CONNECTION))
+        conn = bytearry_to_int(self._read_register(_CONNECTION))
         speed = bytearry_to_int(self._read_register(_DEVICE_SPEED))
-        
+
         out = [0]*5
 
         ## Have to follow logical to physical remapping
@@ -193,7 +195,7 @@ class USBHub:
     def attach(self):
         ## 0xAA 0x55 : Exit SOC_CONFIG and Enter HUB_CONFIG stage
         ## 0xAA 0x56 : Exit SOC_CONFIG and Enter HUB_CONFIG stage with SMBus slave enabled
-        out  = [0xAA, 0x56, 0x00]
+        out = [0xAA, 0x56, 0x00]
 
         with self.i2c_device as i2c:
             i2c.write(bytearray(out))
@@ -208,20 +210,20 @@ class USBHub:
         time.sleep(0.02)
 
     def configure(self):
-        ## Reverse DP/DM pints of  upstream port and ports 3 & 4 
+        ## Reverse DP/DM pints of  upstream port and ports 3 & 4
         self.set_port_swap(values=[True, False, False, True, True])
         self.set_hub_control(lpm_disable=True)
         self.set_hub_config_3(port_map_enable=True)
 
-        ## Remap ports so that case physcial markings match the USB 
-        self.set_port_remap(ports=[2,4,1,3])
+        ## Remap ports so that case physcial markings match the USB
+        self.set_port_remap(ports=[2, 4, 1, 3])
 
         self.attach()
         self.upstream(True)
 
         time.sleep(0.02)
 
-    
+
     def upstream(self, state):
         self.pin_hen.value = not state
 
@@ -246,7 +248,7 @@ class USBHub:
 
         self._write_register(_HUB_CONFIG_3, [value])
 
-    def set_port_remap(self, ports=[1,2,3,4]):
+    def set_port_remap(self, ports=[1, 2, 3, 4]):
         self.remap = ports
 
         port12 = ((ports[1] << 4) & 0xFF) | (ports[0] & 0xFF)
