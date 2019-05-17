@@ -24,6 +24,7 @@ import time
 
 import board
 import digitalio
+import analogio
 from micropython import const
 
 from adafruit_bus_device.i2c_device import I2CDevice
@@ -49,8 +50,9 @@ _POWER_SELECT_1 = const(0x3C00)
 _POWER_SELECT_2 = const(0x3C04)
 _POWER_SELECT_3 = const(0x3C08)
 _POWER_SELECT_4 = const(0x3C0C)
-
-_CFG_REG_CMD    = bytearray([0x99, 0x37, 0x00])
+  
+_CFG_REG_CMD      = bytearray([0x99, 0x37, 0x00])
+_DEFAULT_PORT_MAP = [1, 2, 3, 4]
 # pylint: enable=bad-whitespace
 
 def _register_length(addr):
@@ -85,22 +87,37 @@ def clear_bit(value, bit):
 
 class USBHub:
 
-    def __init__(self, i2c_bus, addr=0x2D):
-        self.pin_rst = digitalio.DigitalInOut(board.USBRST)
-        self.pin_rst.switch_to_output(value=False)
+    def __init__(self, i2c_bus, addr=0x2D, force=False):
 
-        self.pin_hen = digitalio.DigitalInOut(board.USBHEN)
-        self.pin_hen.switch_to_output(value=True)
+        ## Setup pins so that statue upon switchign to output
+        ## is identical to the board electrical default.  This
+        ## allows object to be created an no state change occur.
+        self.pin_rst = digitalio.DigitalInOut(board.USBRESET)
+        self.pin_rst.switch_to_output(value=True)
 
-        self.remap = [1, 2, 3, 4]
-        self.vlim = None
-        self.vlogic = None
+        self.pin_hen = digitalio.DigitalInOut(board.USBHOSTEN)
+        self.pin_hen.switch_to_output(value=False)
 
-        self.reset()
-        self.i2c_device = I2CDevice(i2c_bus, addr)
+        self.vlim = analogio.AnalogIn(board.ANVLIM)
+        self.vlogic = analogio.AnalogIn(board.AN5V)
 
-        self.reset()
-        self.configure()
+        self.i2c_device = I2CDevice(i2c_bus, addr, probe=False)
+
+        ## Here we are using the port remapping to determine if the hub
+        ## has been previously configured.  If so, we don't need to reset
+        ## it or configure it and can just control it as-is.
+        ##
+        ## If the hub has not been configured (e.g. when the board is first 
+        ## powered on), this call will raise an OSError.  That will then trigger
+        ## the normal reset & configure process.
+        try:
+            self.remap = self.get_port_remap()
+        except OSError:
+            self.remap = _DEFAULT_PORT_MAP
+
+        if self.remap == _DEFAULT_PORT_MAP or force:
+            self.reset()
+            self.configure()
 
     def _write_register(self, address, xbytes):
 
@@ -202,14 +219,18 @@ class USBHub:
         with self.i2c_device as i2c:
             i2c.write(bytearray(out))
 
-    def reset(self):
-        # Put in reset for 10 ms
+    def reset(self):       
+        time.sleep(0.05)
+        
+        # Put in reset for at least 10 ms
         self.pin_rst.value = False
-        time.sleep(0.01)
+        time.sleep(0.05)
 
         # Must wait at least 1 ms after RESET_N deassertion for straps to be read
+        # Testing has found this delay must be MUCH longer than 1 ms for subsequent
+        # I2C calls to suceed.
         self.pin_rst.value = True
-        time.sleep(0.02)
+        time.sleep(0.05)
 
     def configure(self):
         ## Reverse DP/DM pints of  upstream port and ports 3 & 4
@@ -221,7 +242,6 @@ class USBHub:
         self.set_port_remap(ports=[2, 4, 1, 3])
 
         self.attach()
-        self.upstream(True)
 
         time.sleep(0.02)
 
@@ -258,6 +278,12 @@ class USBHub:
 
         self._write_register(_REMAP_12, [port12])
         self._write_register(_REMAP_34, [port34])
+
+    def get_port_remap(self):
+        port12 = bytearry_to_int(self._read_register(_REMAP_12))
+        port34 = bytearry_to_int(self._read_register(_REMAP_34))
+
+        return [port12 & 0x0F, (port12 >> 4) & 0x0F, port34 & 0x0F, (port34 >> 4) & 0x0F]
 
     @property
     def rails(self):
