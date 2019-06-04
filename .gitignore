@@ -1,2 +1,4 @@
+*.pyc
 *.mpy
 build
+tasks.py
