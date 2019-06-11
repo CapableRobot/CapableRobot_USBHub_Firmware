@@ -285,6 +285,23 @@ class USBHub:
 
         return [port12 & 0x0F, (port12 >> 4) & 0x0F, port34 & 0x0F, (port34 >> 4) & 0x0F]
 
+    def power_state(self, ports=[1,2,3,4]):
+        out = []
+
+        for port in ports:
+            data = self._read_register(_POWER_SELECT_1+(port-1)*4)
+            out.append((data[0] & 1) == 1)
+
+        return out
+
+    def power_disable(self, ports=[]):
+        for port in ports:
+            self._write_register(_POWER_SELECT_1+(port-1)*4, [0x80])
+
+    def power_enable(self, ports=[]):
+        for port in ports:
+            self._write_register(_POWER_SELECT_1+(port-1)*4, [0x81])
+
     @property
     def rails(self):
         vlim, vlogic = None, None
