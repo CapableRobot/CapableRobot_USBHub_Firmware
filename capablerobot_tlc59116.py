@@ -38,8 +38,12 @@ class TLC59116:
         self.configure(**kwargs)
 
     def _write_register(self, address, xbytes):
-        with self.i2c_device as i2c:
-            i2c.write(bytearray([address]+xbytes))
+        try:
+            with self.i2c_device as i2c:
+                i2c.write(bytearray([address]+xbytes))
+            return True
+        except OSError:
+            return False
 
     # pylint: disable=too-many-arguments
     def configure(self,

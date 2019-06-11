@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import time
 import adafruit_bus_device.i2c_device as i2c_device
 
 _REG_PORT1_CURRENT = const(0x00)
@@ -34,25 +35,40 @@ class UCS2113:
         self.i2c_device = i2c_device.I2CDevice(i2c, address)
         self._buffer = bytearray(1)
 
-    def _read_register_bytes(self, register, result, length=None):
+    def _read_register_bytes(self, register, result, length=None, max_attempts=5):
         # Read the specified register address and fill the specified result byte
         # array with result bytes.  Make sure result buffer is the desired size
         # of data to read.
         if length is None:
             length = len(result)
 
-        with self.i2c_device as i2c:
-            i2c.write_then_readinto(bytes([register]), result, in_end=length, stop=False)
+        attempts = 0
+        while attempts < max_attempts:
+            attempts += 1
+            try:
+                with self.i2c_device as i2c:
+                    i2c.write_then_readinto(bytes([register]), result, in_end=length, stop=False)
+                break
+            except OSError:
+                time.sleep(0.01)
+                if attempts >= max_attempts:
+                    return False
+
+        return True
 
     def currents(self, one=True, two=True, raw=False):
         out = []
 
         if one:
-            self._read_register_bytes(_REG_PORT1_CURRENT, self._buffer)
+            success = self._read_register_bytes(_REG_PORT1_CURRENT, self._buffer)
+            if not success:
+                return []
             out.append(self._buffer[0])
 
         if two:
-            self._read_register_bytes(_REG_PORT2_CURRENT, self._buffer)
+            success = self._read_register_bytes(_REG_PORT2_CURRENT, self._buffer)
+            if not success:
+                return []
             out.append(self._buffer[0])
 
         if raw:
@@ -80,6 +96,9 @@ class Ports:
 
         if three or four:
             out.extend(self.ch34.currents(one=three, two=four, raw=raw))
+
+        if len(out) != len(ports):
+            return []
 
         if total:
             out = [sum(out)] + out
