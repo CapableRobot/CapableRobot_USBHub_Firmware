@@ -50,6 +50,7 @@ _POWER_SELECT_1 = const(0x3C00)
 _POWER_SELECT_2 = const(0x3C04)
 _POWER_SELECT_3 = const(0x3C08)
 _POWER_SELECT_4 = const(0x3C0C)
+_CHARGE_CONFIG  = const(0x343C)
   
 _CFG_REG_CMD      = bytearray([0x99, 0x37, 0x00])
 _DEFAULT_PORT_MAP = [1, 2, 3, 4]
@@ -241,6 +242,8 @@ class USBHub:
         ## Remap ports so that case physcial markings match the USB
         self.set_port_remap(ports=[2, 4, 1, 3])
 
+        self.set_charging_config()
+
         self.attach()
 
         time.sleep(0.02)
@@ -278,6 +281,46 @@ class USBHub:
 
         self._write_register(_REMAP_12, [port12])
         self._write_register(_REMAP_34, [port34])
+
+    def set_charging_config(self, ports=[1,2,3,4], ucs_lim=0b11, enable=True, dcp=True, se1=0b00, china_mode=False):
+
+        ## ucs_lim : When controlling UCS through I2C, this sets the current limit.
+        ## 0b00 : 500 mA
+        ## 0b01 : 1000 mA
+        ## 0b10 : 1500 mA
+        ## 0b11 : 2000 mA
+
+        ## 'dcp' is Dedicated Charging Mode.  Ignored if china_mode is enabled.
+        ## This mode only active when a USB Host is not present.  When a host is 
+        ## present, CDP mode is used.
+
+        ## Bit 1 & 2 are SE1. Enables SE1 charging mode for certain devices. 
+        ## This mode is only activated when a USB host is not present. When a 
+        ## host is present, the mode of operation is CDP. When SE1 mode and DCP 
+        ## mode are both enabled, the hub toggles between the two modes of 
+        ## operation as necessary to ensure the device can charge.
+        ##
+        ## 0b00 : Mode Disabled
+        ## 0b01 : 1A mode (D-: 2.7V, D+: 2.0V)
+        ## 0b10 : 2A mode (D-: 2.0V, D+: 2.7V)
+        ## 0b11 : 2.5A mode enabled (D-: 2.7V, D+: 2.7V)
+
+        ## Bit 0 is Battery Charging Support Enable. This bit enables CDP and 
+        ## must be set for any battery charging functions to be enabled. Other 
+        ## functions in addi- tion to CDP are enabled by setting their 
+        ## respective bits in addition to this bit.
+
+        value = (ucs_lim & 0b11) << 6 | \
+                dcp << 5 | \
+                china_mode << 4 | \
+                (se1 & 0b11) << 1 | \
+                enable 
+        print("charging {}".format(value))
+
+        for port in ports:
+            ## Register address is based on the port number
+            self._write_register(_CHARGE_CONFIG+port-1, [value])
+
 
     def get_port_remap(self):
         port12 = bytearry_to_int(self._read_register(_REMAP_12))
