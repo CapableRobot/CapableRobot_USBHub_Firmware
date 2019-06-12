@@ -38,6 +38,9 @@ class TLC59116:
         self.configure(**kwargs)
 
     def _write_register(self, address, xbytes):
+        ## Ensure that payload doesn't overflow byte boundry
+        xbytes = [min(255,v) for v in xbytes]
+        
         try:
             with self.i2c_device as i2c:
                 i2c.write(bytearray([address]+xbytes))
