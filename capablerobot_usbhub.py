@@ -390,8 +390,17 @@ class USBHub:
         out = []
 
         for port in ports:
-            data = self._read_register(_POWER_SELECT_1+(port-1)*4)
-            out.append((data[0] & 1) == 1)
+            data = self._read_register(_POWER_SELECT_1+(port-1)*4)[0]
+
+            ## Bits 3:0 mapping:
+            ##  0b000 : Port power is disabled
+            ##  0b001 : Port is on if USB2 port power is on
+            ##  0b010 : Port is on if designated GPIO is on
+
+            ## Upstream disconnect and downstream connection cause 0b010
+            ## So, we need to check for value > 0 (not just bit 0) to determine
+            ## if port power is on or not.
+            out.append((data & 0b111) > 0)
 
         return out
 
