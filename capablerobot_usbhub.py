@@ -30,6 +30,7 @@ from micropython import const
 from adafruit_bus_device.i2c_device import I2CDevice
 
 # pylint: disable=bad-whitespace
+_I2C_ADDR_USB   = const(0x2D)
 _REVISION       = const(0x0000)
 _VENDOR_ID      = const(0x3000)
 _PRODUCT_ID     = const(0x3002)
@@ -55,6 +56,9 @@ _CHARGE_CONFIG  = const(0x343C)
 _CFG_REG_CMD      = bytearray([0x99, 0x37, 0x00])
 _DEFAULT_PORT_MAP = [1, 2, 3, 4]
 # pylint: enable=bad-whitespace
+
+_I2C_ADDR_MCP   = const(0x20)
+_GPIO           = const(0x09)
 
 def _register_length(addr):
     if addr in [_REVISION]:
@@ -85,10 +89,12 @@ def set_bit(value, bit):
 def clear_bit(value, bit):
     return value & ~(1<<bit)
 
+def get_bit(value, bit):
+    return (value & (1<<bit)) > 0 
 
 class USBHub:
 
-    def __init__(self, i2c_bus, addr=0x2D, force=False):
+    def __init__(self, i2c1_bus, i2c2_bus, force=False):
 
         ## Setup pins so that statue upon switchign to output
         ## is identical to the board electrical default.  This
@@ -102,7 +108,8 @@ class USBHub:
         self.vlim = analogio.AnalogIn(board.ANVLIM)
         self.vlogic = analogio.AnalogIn(board.AN5V)
 
-        self.i2c_device = I2CDevice(i2c_bus, addr, probe=False)
+        self.i2c_device = I2CDevice(i2c2_bus, _I2C_ADDR_USB, probe=False)
+        self.mcp_device = I2CDevice(i2c1_bus, _I2C_ADDR_MCP, probe=False)
 
         ## Here we are using the port remapping to determine if the hub
         ## has been previously configured.  If so, we don't need to reset
@@ -119,6 +126,7 @@ class USBHub:
         if self.remap == _DEFAULT_PORT_MAP or force:
             self.reset()
             self.configure()
+            self.set_mcp_config()
 
     def _write_register(self, address, xbytes):
 
@@ -320,6 +328,56 @@ class USBHub:
         for port in ports:
             ## Register address is based on the port number
             self._write_register(_CHARGE_CONFIG+port-1, [value])
+
+    def set_mcp_config(self, inputs=[False, False, False, False]):
+        """Set direction on MCP IO pins.  'inputs' list will set GP0 thru GP4 to inputs, if respective position is true"""
+
+        ## Bits 7 thru 4 control USB data enables on downstream ports 1 thru 4, respectively.
+        ## They must be set to 0 to make them outputs.
+        value = 0b00000000 | \
+                inputs[3] << 3 | \
+                inputs[2] << 2 | \
+                inputs[1] << 1 | \
+                inputs[0]
+
+        with self.mcp_device as i2c:
+            ## Write to IODIR register and defaults to other registers.
+            ## 0x09 (GPIO) register has to be 0b0000_0000 so that downstream ports default to enabled
+            i2c.write(bytearray([0x00, value, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
+
+    def _read_mcp_register(self, addr):
+        inbuf = bytearray(1)
+
+        with self.mcp_device as i2c:
+            i2c.write_then_readinto(bytearray([addr]), inbuf)
+        
+        return inbuf[0]
+
+    def data_state(self):
+        value = self._read_mcp_register(_GPIO)
+        return [not get_bit(value, 7), not get_bit(value, 6), not get_bit(value, 5), not get_bit(value, 4)]
+
+    def data_enable(self, ports=[]):
+        inbuf = bytearray(1)
+
+        with self.mcp_device as i2c:
+            i2c.write_then_readinto(bytearray([_GPIO]), inbuf)
+
+            for port in ports:
+                inbuf[0] = clear_bit(inbuf[0], 8-port)
+
+            i2c.write(bytearray([_GPIO])+inbuf)
+
+    def data_disable(self, ports=[]):
+        inbuf = bytearray(1)
+
+        with self.mcp_device as i2c:
+            i2c.write_then_readinto(bytearray([_GPIO]), inbuf)
+
+            for port in ports:
+                inbuf[0] = set_bit(inbuf[0], 8-port)
+
+            i2c.write(bytearray([_GPIO])+inbuf)
 
 
     def get_port_remap(self):
