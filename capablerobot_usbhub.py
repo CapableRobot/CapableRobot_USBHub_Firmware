@@ -106,6 +106,13 @@ class USBHub:
         self.pin_hen = digitalio.DigitalInOut(board.USBHOSTEN)
         self.pin_hen.switch_to_output(value=False)
 
+        try:
+            self.pin_bcen = digitalio.DigitalInOut(board.USBBCEN)
+            self.pin_bcen.switch_to_output(value=False)
+        except AttributeError:
+            print("WARN : Firmware does not define pin for battery charge configuration")
+            self.pin_bcen = None
+
         self.vlim = analogio.AnalogIn(board.ANVLIM)
         self.vlogic = analogio.AnalogIn(board.AN5V)
 
@@ -231,6 +238,10 @@ class USBHub:
 
     def reset(self):       
         time.sleep(0.05)
+
+        if self.pin_bcen is not None:
+            # Turn on 10 ohm resistor for charge strapping
+            self.pin_bcen.value = True
         
         # Put in reset for at least 10 ms
         self.pin_rst.value = False
@@ -241,6 +252,10 @@ class USBHub:
         # I2C calls to suceed.
         self.pin_rst.value = True
         time.sleep(0.05)
+
+        if self.pin_bcen is not None:
+            # Turn 10 ohm resistor off, so that SPI bus can operate properly
+            self.pin_bcen.value = False
 
     def configure(self):
         ## Reverse DP/DM pints of  upstream port and ports 3 & 4
