@@ -55,10 +55,11 @@ _CHARGE_CONFIG  = const(0x343C)
   
 _CFG_REG_CMD      = bytearray([0x99, 0x37, 0x00])
 _DEFAULT_PORT_MAP = [1, 2, 3, 4]
-# pylint: enable=bad-whitespace
+_CUSTOM_PORT_MAP  = [2, 4, 1, 3]
 
 _I2C_ADDR_MCP   = const(0x20)
 _GPIO           = const(0x09)
+# pylint: enable=bad-whitespace
 
 def _register_length(addr):
     if addr in [_REVISION]:
@@ -248,7 +249,7 @@ class USBHub:
         self.set_hub_config_3(port_map_enable=True)
 
         ## Remap ports so that case physcial markings match the USB
-        self.set_port_remap(ports=[2, 4, 1, 3])
+        self.set_port_remap(ports=_CUSTOM_PORT_MAP)
 
         self.set_charging_config()
 
