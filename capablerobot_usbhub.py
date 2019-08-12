@@ -263,7 +263,15 @@ class USBHub:
             # Turn 10 ohm resistor off, so that SPI bus can operate properly
             self.pin_bcen.value = False
 
-    def configure(self):
+    def configure(self, opts={}):
+        
+        if "highspeed_disable" in opts.keys():
+            highspeed_disable = opts["highspeed_disable"]
+        else:
+            highspeed_disable = False
+        
+        self.set_hub_config_1(highspeed_disable=highspeed_disable)
+
         ## Reverse DP/DM pints of  upstream port and ports 3 & 4
         self.set_port_swap(values=[True, False, False, True, True])
         self.set_hub_control(lpm_disable=True)
@@ -296,6 +304,21 @@ class USBHub:
                 reset
 
         self._write_register(_HUB_CTRL, [value])
+
+    def set_hub_config_1(self, self_powered=True, vsm_disable=False, highspeed_disable=False, multitt_enable=False, 
+                                eop_disable=False, individual_current_sense=True, individual_port_power=True):
+
+        ## individual_current_sense : 0 -> ganged sensing, 1 -> individual, 2 or 3 -> current sense not supported
+
+        value = self_powered << 7 | \
+                vsm_disable << 6 | \
+                highspeed_disable << 5 | \
+                multitt_enable << 4 | \
+                eop_disable << 3 | \
+                individual_current_sense << 1 | \
+                individual_port_power
+
+        self._write_register(_HUB_CONFIG_1, [value])
 
     def set_hub_config_3(self, port_map_enable=True, string_descriptor_enable=False):
         value = port_map_enable << 3 | \
