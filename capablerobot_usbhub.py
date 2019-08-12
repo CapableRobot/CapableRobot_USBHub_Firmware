@@ -128,8 +128,10 @@ class USBHub:
         ## the normal reset & configure process.
         try:
             self.remap = self.get_port_remap()
+            print("USB Hub has been configured")
         except OSError:
             self.remap = _DEFAULT_PORT_MAP
+            print("USB Hub is in default state")
 
         if self.remap == _DEFAULT_PORT_MAP or force:
             self.reset()
@@ -156,6 +158,10 @@ class USBHub:
             0xBF, 0x80,
             (address >> 8) & 0xFF, address & 0xFF
         ]
+
+        ## Print address registers and data payload
+        # row = [out[7], out[8], len(xbytes)] + list(xbytes)
+        # print(row)
 
         with self.i2c_device as i2c:
             ## Write the pre-amble and then the payload
