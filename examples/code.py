@@ -57,7 +57,7 @@ while True:
 
     data_state = usb.data_state()
 
-    ## Set the data leds based on the detected per-port speeds
+    ## Set the data LEDs based on the detected per-port speeds
     for idx, speed in enumerate(usb.speeds):
         color = (0,0,0)
 
@@ -82,7 +82,7 @@ while True:
 
     power_state = usb.power_state()
 
-    ## Set the power leds based on the measured per-port current
+    ## Set the power LEDs based on the measured per-port current
     for idx, current in enumerate(ucs.currents(raw=True, rescale=2)):
 
         ## With rescaling, raw reading may be above 255 (max value for LED), so cap it
