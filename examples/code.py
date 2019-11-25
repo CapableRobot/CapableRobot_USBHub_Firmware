@@ -49,11 +49,19 @@ stdout("Unit SKU : %s" % eeprom.sku)
 stdout("  Serial : %s" % eeprom.serial)
 stdout()
 
+external_heartbeat = False
+
 while True:
     time.sleep(0.1)
 
     ## Internal heartbeat LED
     led3.value = not led3.value
+
+    if external_heartbeat:
+        if led3.value:
+            led_data.aux(0)
+        else:
+            led_data.aux(250)
 
     data_state = usb.data_state()
 
