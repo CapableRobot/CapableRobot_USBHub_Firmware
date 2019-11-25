@@ -85,3 +85,18 @@ class EEPROM:
             return ''.join(["%0.2X" % v for v in data])
 
         return data
+
+    @property
+    def serial(self):
+        return self.eui
+
+    @property
+    def sku(self):
+        data = bytearry_to_ints(self.read(0x00, 0x06))
+
+        ## Prototype units didn't have the PCB SKU programmed into the EEPROM
+        ## If EEPROM location is empty, we assume we're interacting with that hardware
+        if data[0] == 0 or data[0] == 255:
+            return 'CRR3C4'
+
+        return ''.join([chr(v) for v in data])
