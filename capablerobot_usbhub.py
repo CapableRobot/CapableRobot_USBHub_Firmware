@@ -368,7 +368,6 @@ class USBHub:
                 china_mode << 4 | \
                 (se1 & 0b11) << 1 | \
                 enable 
-        print("charging {}".format(value))
 
         for port in ports:
             ## Register address is based on the port number
