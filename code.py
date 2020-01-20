@@ -51,6 +51,11 @@ stdout()
 
 external_heartbeat = False
 
+## Seconds that upstream link can be down before resetting the hub
+upstream_timeout = 30
+upstream_state = 'reset'
+upstream_last_time = boot_time
+
 while True:
     time.sleep(0.1)
 
@@ -79,9 +84,15 @@ while True:
         elif speed == 0b11:
             color = (LED_BRIGHT,LED_BRIGHT,LED_BRIGHT)
 
-        ## If the upstream port is disconnected, light the LED red
-        if speed == 0b00 and idx == 0:
-            color = (LED_BRIGHT,0,0)
+        if idx == 0:
+            if speed == 0b00:
+                ## If the upstream port is disconnected, light the 
+                ## LED red and record that the link is down
+                color = (LED_BRIGHT,0,0)
+                upstream_state = 'down'
+            else:
+                upstream_last_time = time.monotonic()
+                upstream_state = 'up'
 
         led_data.rgb(idx, color, update=False)
 
@@ -111,7 +122,21 @@ while True:
 
     led_pwr.update()
 
+    if upstream_state == 'down' and time.monotonic() - upstream_last_time > upstream_timeout:
+        stdout("--- RESET DUE TO LINK LOSS ---")
+        
+        usb.reset()
+        usb.configure()
+        usb.set_mcp_config()
 
+        ## Light the host data LED orange to show the reset is occuring
+        led_data.rgb(0, (LED_BRIGHT,int(LED_BRIGHT/2),0), update=True)
+        time.sleep(0.5)
+        
+        ## Reset the upstream timeout to ensure that the next
+        ## reset can only occurs after the specified timeout
+        upstream_state = 'reset'
+        upstream_last_time = time.monotonic()
 
 
 
