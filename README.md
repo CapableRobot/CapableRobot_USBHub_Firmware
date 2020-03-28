@@ -11,7 +11,7 @@ This firmware depends on:
 
 Please ensure all dependencies are available on the CircuitPython filesystem.
 This is easily achieved by downloading
-[the Adafruit library and driver bundle](https://github.com/adafruit/Adafruit_CircuitPython_Bundle>)/. The USB Hub ships with dependencies installed.
+[the Adafruit library and driver bundle](https://github.com/adafruit/Adafruit_CircuitPython_Bundle). The USB Hub ships with dependencies installed.
 
 
 ## I2C Devices
