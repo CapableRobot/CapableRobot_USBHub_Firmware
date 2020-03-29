@@ -31,9 +31,14 @@ _MA_PER_BIT = 13.3
 
 class UCS2113:
 
-    def __init__(self, i2c, address=0x57):
+    def __init__(self, i2c, address=0x57, filter_len=10):
         self.i2c_device = i2c_device.I2CDevice(i2c, address)
         self._buffer = bytearray(1)
+
+        # Moving average filters. New entries inserted at the end of the list.
+        self._filter_len = filter_len
+        self._ch1_filt = [0] * self._filter_len
+        self._ch2_filt = [0] * self._filter_len
 
     def _read_register_bytes(self, register, result, length=None, max_attempts=5):
         # Read the specified register address and fill the specified result byte
@@ -56,20 +61,34 @@ class UCS2113:
 
         return True
 
-    def currents(self, one=True, two=True, raw=False):
+    def currents(self, one=True, two=True, raw=False, filtered=True):
         out = []
 
         if one:
             success = self._read_register_bytes(_REG_PORT1_CURRENT, self._buffer)
             if not success:
                 return []
-            out.append(self._buffer[0])
+
+            self._ch1_filt.pop(0)
+            self._ch1_filt.append(self._buffer[0])
+            if filtered:
+                filt_out = sum(self._ch1_filt) / self._filter_len
+                out.append(round(filt_out) if raw else filt_out)
+            else:
+                out.append(self._buffer[0])
 
         if two:
             success = self._read_register_bytes(_REG_PORT2_CURRENT, self._buffer)
             if not success:
                 return []
-            out.append(self._buffer[0])
+
+            self._ch2_filt.pop(0)
+            self._ch2_filt.append(self._buffer[0])
+            if filtered:
+                filt_out = sum(self._ch2_filt) / self._filter_len
+                out.append(round(filt_out) if raw else filt_out)
+            else:
+                out.append(self._buffer[0])
 
         if raw:
             return out
