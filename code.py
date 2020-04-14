@@ -49,24 +49,30 @@ stdout("Unit SKU : %s" % eeprom.sku)
 stdout("  Serial : %s" % eeprom.serial)
 stdout()
 
-external_heartbeat = False
-
 ## Seconds that upstream link can be down before resetting the hub
 upstream_timeout = 30
 upstream_state = 'reset'
 upstream_last_time = boot_time
 
 while True:
-    time.sleep(0.1)
-
+    time.sleep(usb.config["loop_delay"])
+    
+    ## Look for data from the Host computer via special USB4715 registers
+    usb.poll_for_host_comms()
+        
     ## Internal heartbeat LED
     led3.value = not led3.value
 
-    if external_heartbeat:
+    if usb.config["external_heartbeat"]:
         if led3.value:
             led_data.aux(0)
         else:
             led_data.aux(250)
+    elif led3.value:
+        ## If the configuration was changed while the LED is on, 
+        ## we still need to turn it off
+        led_data.aux(0)
+
 
     data_state = usb.data_state()
 
@@ -124,7 +130,7 @@ while True:
 
     if upstream_state == 'down' and time.monotonic() - upstream_last_time > upstream_timeout:
         stdout("--- RESET DUE TO LINK LOSS ---")
-        
+
         usb.reset()
         usb.configure()
         usb.set_mcp_config()

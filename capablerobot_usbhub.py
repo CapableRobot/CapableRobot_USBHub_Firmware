@@ -22,16 +22,23 @@
 
 import time
 
+import os, sys
 import board
 import digitalio
 import analogio
+import supervisor
+import microcontroller
 from micropython import const
 
 from adafruit_bus_device.i2c_device import I2CDevice
 
 # pylint: disable=bad-whitespace
+__version__     = const(0x01)
+
 _I2C_ADDR_USB   = const(0x2D)
 _REVISION       = const(0x0000)
+_MEM_READ       = const(0x0914)
+_MEM_WRITE      = const(0x0924)
 _VENDOR_ID      = const(0x3000)
 _PRODUCT_ID     = const(0x3002)
 _DEVICE_ID      = const(0x3004)
@@ -59,16 +66,74 @@ _CUSTOM_PORT_MAP  = [2, 4, 1, 3]
 
 _I2C_ADDR_MCP   = const(0x20)
 _GPIO           = const(0x09)
+
+_CRC8_POLYNOMIAL = const(0x31)
+_CRC8_INIT       = const(0xFF)
+
+_CMD_NOOP   = const(0b000)
+_CMD_GET    = const(0b001)
+_CMD_SET    = const(0b010)
+_CMD_SAVE   = const(0b100)
+_CMD_RESET  = const(0b111)
+
+_CMD_RESET_USB        = const(0x00)
+_CMD_RESET_MCU        = const(0x01)
+_CMD_RESET_BOOTLOADER = const(0x02)
+
+## Floats are transmitted and persisted as integers with the following
+## mutiplier.  Any configuration key in this array will be scaled
+## by the value here upon receipt / transmission.
+_FLOAT_SCALE = 100
+_FLOAT_KEYS = ["loop_delay"]
+
+_CFG_FIRMWARE_VERSION   = const(0x01)
+_CFG_CYPY_MAJOR         = const(0x02)
+_CFG_CYPY_MINOR         = const(0x03)
+_CFG_CYPY_PATCH         = const(0x04)
+
+_CFG_HIGHSPEED_DISABLE  = const(0x10)
+_CFG_LOOP_DELAY         = const(0x11)
+_CFG_EXTERNAL_HEARTBEAT = const(0x12)
+
 # pylint: enable=bad-whitespace
 
+def stdout(*args):
+    if supervisor.runtime.serial_connected:
+        print("   ", *args)
+
+def _process_find_key(name):
+    if name == _CFG_HIGHSPEED_DISABLE:
+        return "highspeed_disable"
+    
+    if name == _CFG_LOOP_DELAY:
+        return "loop_delay"
+    
+    if name == _CFG_EXTERNAL_HEARTBEAT:
+        return "external_heartbeat"
+
+    return None
+
 def _register_length(addr):
-    if addr in [_REVISION]:
+    if addr in [_REVISION, _MEM_READ, _MEM_WRITE]:
         return 4
 
     if addr in [_VENDOR_ID, _PRODUCT_ID, _DEVICE_ID, _POWER_STATE]:
         return 2
 
     return 1
+
+def _generate_crc(data):
+    crc = _CRC8_INIT
+
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 0x80:
+                crc = (crc << 1) ^ _CRC8_POLYNOMIAL
+            else:
+                crc <<= 1
+
+    return crc & 0xFF
 
 def bytearry_to_int(b, lsb_first=True):
     if lsb_first:
@@ -110,7 +175,7 @@ class USBHub:
             self.pin_bcen = digitalio.DigitalInOut(board.USBBCEN)
             self.pin_bcen.switch_to_output(value=False)
         except AttributeError:
-            print("WARN : Firmware does not define pin for battery charge configuration")
+            stdout("WARN : Firmware does not define pin for battery charge configuration")
             self.pin_bcen = None
 
         self.vlim = analogio.AnalogIn(board.ANVLIM)
@@ -119,7 +184,17 @@ class USBHub:
         self.i2c_device = I2CDevice(i2c2_bus, _I2C_ADDR_USB, probe=False)
         self.mcp_device = I2CDevice(i2c1_bus, _I2C_ADDR_MCP, probe=False)
 
-        ## Here we are using the port remapping to determine if the hub
+        ## Load default configuration and then check filesystem for INI file to update it
+        self.config = dict(
+            highspeed_disable = False,
+            loop_delay = 0.1,
+            external_heartbeat = False, 
+            force = False
+        )
+        self._update_config_from_ini()
+
+
+        ## Here we are using the port remapping to determine if the hub IC
         ## has been previously configured.  If so, we don't need to reset
         ## it or configure it and can just control it as-is.
         ##
@@ -128,12 +203,13 @@ class USBHub:
         ## the normal reset & configure process.
         try:
             self.remap = self.get_port_remap()
-            print("USB Hub has been configured")
+            stdout("Hub IC has been configured")
         except OSError:
             self.remap = _DEFAULT_PORT_MAP
-            print("USB Hub is in default state")
+            stdout("Hub IC is in default state")
 
-        if self.remap == _DEFAULT_PORT_MAP or force:
+        if self.remap == _DEFAULT_PORT_MAP or force or self.config['force']:
+            stdout("Resetting and configuring Hub IC")
             self.reset()
             self.configure()
             self.set_mcp_config()
@@ -158,10 +234,6 @@ class USBHub:
             0xBF, 0x80,
             (address >> 8) & 0xFF, address & 0xFF
         ]
-
-        ## Print address registers and data payload
-        # row = [out[7], out[8], len(xbytes)] + list(xbytes)
-        # print(row)
 
         with self.i2c_device as i2c:
             ## Write the pre-amble and then the payload
@@ -265,10 +337,13 @@ class USBHub:
 
     def configure(self, **opts):
         
+        highspeed_disable = False
+
+        if "highspeed_disable" in self.config.keys():
+            highspeed_disable = self.config["highspeed_disable"]
+
         if "highspeed_disable" in opts.keys():
             highspeed_disable = opts["highspeed_disable"]
-        else:
-            highspeed_disable = False
         
         self.set_hub_config_1(highspeed_disable=highspeed_disable, multitt_enable=True)
 
@@ -289,6 +364,163 @@ class USBHub:
 
     def upstream(self, state):
         self.pin_hen.value = not state
+
+    def _update_config_from_ini(self):
+
+        ## If the INI file does not exist, the 'open' will 
+        ## raise an OSError, so we catch that here.
+        try:
+            with open("/config.ini", 'r') as f:
+                stdout("Loading config.ini from filesystem")
+
+                line = f.readline()
+                while line != '':
+
+                    ## Skip commented out lines
+                    if line[0] == ';':
+                        line = f.readline()
+                        continue
+
+                    key, value = [w.strip() for w in line.split("=")]
+
+                    if key in _FLOAT_KEYS:
+                        value = float(value) / _FLOAT_SCALE
+                    else:
+                        value = int(value)
+
+                    stdout("  ", key, "=", value)
+                    self.config[key] = value
+                    
+                    line = f.readline()
+        except OSError:
+            stdout("Default configuration")
+
+    def _save_config_to_ini(self):
+        import storage
+        
+        ## If MCU is mounted on a host, this call will fail
+        ## and we report the error via returning False (0) to the caller.
+        ## 
+        ## CircuitPython 5.2.0 or greater is needed for this process to work.
+        try:
+            storage.remount("/", readonly=False)
+            stdout("Remounted filesystem RW")
+        except RuntimeError as e:
+            stdout("Remount filesystem RW failed")
+            stdout(e)
+            return 0
+
+        with open("/config.ini", 'w') as f:
+            for key, value in self.config.items():
+                if key in _FLOAT_KEYS:
+                    value = round(value * _FLOAT_SCALE)
+                else:
+                    value = int(value)
+                f.write(key + "=" + str(value) + "\r\n")
+        
+        stdout("INI file written")
+
+        storage.remount("/", readonly=True)
+        stdout("Remounted filesystem RO")
+
+        return 1
+
+    def set_memory(self, cmd, name=0, value=0):
+        buf = [cmd << 5 | name, (value >> 8) & 0xFF, value & 0xFF]
+        crc = _generate_crc(buf)
+        self._write_register(_MEM_WRITE, buf + [crc])
+
+    def get_memory(self):
+        buf = self._read_register(_MEM_READ)
+        crc = _generate_crc(buf[0:3])
+
+        ## Check that the data is intact
+        if crc == buf[3]:
+
+            ## Clear the register so the host knows we got the request
+            self._write_register(_MEM_READ, [0,0,0,0])
+
+            ## Parse request and pass to caller
+            cmd   = buf[0] >> 5
+            name  = buf[0] & 0b11111
+            value = buf[1] << 8 | buf[2]
+            return cmd, name, value
+
+        return None, None, None
+
+    def _process_host_get(self, name):
+        value = None
+
+        if name == _CFG_FIRMWARE_VERSION:
+            value = __version__
+        elif name == _CFG_CYPY_MAJOR:
+            value = sys.implementation.version[0]
+        elif name == _CFG_CYPY_MINOR:
+            value = sys.implementation.version[1]
+        elif name == _CFG_CYPY_PATCH:
+            value = sys.implementation.version[2]
+        else:
+            key = _process_find_key(name)
+
+            if key is None:
+                return
+
+            value = self.config[key]
+
+            ## Convert from internal representation to external
+            if key in _FLOAT_KEYS:
+                value = round(value * _FLOAT_SCALE)
+
+        ## Expose the value to the host
+        self.set_memory(_CMD_GET, name, value)
+
+    def _process_host_set(self, name, value):
+        key = _process_find_key(name)
+
+        if key is None:
+            return
+
+        ## Convert from external representation to internal
+        if key in _FLOAT_KEYS:
+            value_internal = float(value) / _FLOAT_SCALE
+        else:
+            value_internal = value
+
+        self.config[key] = value_internal
+
+        ## Expose the value to the host, so it knows the set is complete
+        self.set_memory(_CMD_SET, name, value)
+
+    def poll_for_host_comms(self):
+        cmd, name, value = self.get_memory()
+        
+        if cmd == _CMD_GET:
+            self._process_host_get(name)
+
+        elif cmd == _CMD_SET:
+            self._process_host_set(name, value)
+
+        elif cmd == _CMD_RESET:
+            
+            if value == _CMD_RESET_USB:
+                stdout("Host resetting USB IC")
+                self.reset()
+                self.configure()
+
+            elif value == _CMD_RESET_MCU:
+                stdout("Host rebooting MCU")
+                microcontroller.reset()
+
+            elif value == _CMD_RESET_BOOTLOADER:
+                stdout("Host rebooting MCU into bootloader mode")
+                microcontroller.on_next_reset(microcontroller.RunMode.BOOTLOADER)
+                microcontroller.reset()
+
+        elif cmd == _CMD_SAVE:
+            stdout("Saving configuration to INI file")
+            result = self._save_config_to_ini()
+            self.set_memory(_CMD_SAVE, 0, result)
+
 
     def set_port_swap(self, values=[False, False, False, False, False]):
         value = 0
