@@ -270,7 +270,7 @@ class USBHub:
         else:
             highspeed_disable = False
         
-        self.set_hub_config_1(highspeed_disable=highspeed_disable)
+        self.set_hub_config_1(highspeed_disable=highspeed_disable, multitt_enable=True)
 
         ## Reverse DP/DM pints of  upstream port and ports 3 & 4
         self.set_port_swap(values=[True, False, False, True, True])
