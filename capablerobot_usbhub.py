@@ -263,7 +263,7 @@ class USBHub:
             # Turn 10 ohm resistor off, so that SPI bus can operate properly
             self.pin_bcen.value = False
 
-    def configure(self, opts={}):
+    def configure(self, **opts):
         
         if "highspeed_disable" in opts.keys():
             highspeed_disable = opts["highspeed_disable"]
