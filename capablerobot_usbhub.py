@@ -359,7 +359,9 @@ class USBHub:
 
         self.attach()
 
-        time.sleep(0.02)
+        ## Sleep here is needed to allow the I2C2 bus to resume normal state.
+        ## If communications are attempted immediately, the MCU will see a low SCL pin.
+        time.sleep(0.05)
 
 
     def upstream(self, state):
