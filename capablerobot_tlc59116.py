@@ -86,13 +86,13 @@ class TLC59116:
 
     def off(self):
         self.state = [0]*_NUM_LEDS
-        self.update()
+        return self.update()
 
     def aux(self, value, update=True):
         self.state[15] = value
 
         if update:
-            self.update()
+            return self.update()
 
     def rgb(self, channel, rgb, update=True):
         if channel == 0:
@@ -107,7 +107,7 @@ class TLC59116:
         self.state[idx+2] = rgb[2]
 
         if update:
-            self.update()
+            return self.update()
 
     def update(self):
-        self._write_register(_AUTOINCR, self.state)
+        return self._write_register(_AUTOINCR, self.state)
