@@ -648,7 +648,7 @@ class USBHub:
         value = self._read_mcp_register(_GPIO)
 
         if value is None:
-            return [0,0,0,0]
+            return None
 
         return [not get_bit(value, 7), not get_bit(value, 6), not get_bit(value, 5), not get_bit(value, 4)]
 
