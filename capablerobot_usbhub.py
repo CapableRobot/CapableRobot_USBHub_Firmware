@@ -160,6 +160,10 @@ def get_bit(value, bit):
 
 class USBHub:
 
+    # Class-level buffer to reduce memory usage and allocations.
+    # Note this is NOT thread-safe or re-entrant by design.
+    _BUFFER = bytearray(9)
+
     def __init__(self, i2c1_bus, i2c2_bus, force=False):
 
         ## Setup pins so that statue upon switchign to output
@@ -623,39 +627,53 @@ class USBHub:
             ## 0x09 (GPIO) register has to be 0b0000_0000 so that downstream ports default to enabled
             i2c.write(bytearray([0x00, value, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
 
-    def _read_mcp_register(self, addr):
-        inbuf = bytearray(1)
+    def _read_mcp_register(self, addr, max_attempts=5):
 
-        with self.mcp_device as i2c:
-            i2c.write_then_readinto(bytearray([addr]), inbuf)
+        attempts = 0
+        while attempts < max_attempts:
+            attempts += 1
+            try:
+                with self.mcp_device as i2c:
+                    self._BUFFER[0] = addr
+                    i2c.write_then_readinto(self._BUFFER, self._BUFFER, out_end=1, in_end=1)
+                break
+            except OSError:
+                time.sleep(0.01)
+                if attempts >= max_attempts:
+                    return None
         
-        return inbuf[0]
+        return self._BUFFER[0]
 
     def data_state(self):
         value = self._read_mcp_register(_GPIO)
+
+        if value is None:
+            return [0,0,0,0]
+
         return [not get_bit(value, 7), not get_bit(value, 6), not get_bit(value, 5), not get_bit(value, 4)]
 
     def data_enable(self, ports=[]):
-        inbuf = bytearray(1)
 
         with self.mcp_device as i2c:
-            i2c.write_then_readinto(bytearray([_GPIO]), inbuf)
+            self._BUFFER[0] = _GPIO
+            i2c.write_then_readinto(self._BUFFER, self._BUFFER, out_end=1, in_start=1, in_end=2)
 
             for port in ports:
-                inbuf[0] = clear_bit(inbuf[0], 8-port)
+                self._BUFFER[1] = clear_bit(self._BUFFER[1], 8-port)
 
-            i2c.write(bytearray([_GPIO])+inbuf)
+            i2c.write(self._BUFFER, end=2)
 
     def data_disable(self, ports=[]):
         inbuf = bytearray(1)
 
         with self.mcp_device as i2c:
-            i2c.write_then_readinto(bytearray([_GPIO]), inbuf)
+            self._BUFFER[0] = _GPIO
+            i2c.write_then_readinto(self._BUFFER, self._BUFFER, out_end=1, in_start=1, in_end=2)
 
             for port in ports:
-                inbuf[0] = set_bit(inbuf[0], 8-port)
+                self._BUFFER[1] = set_bit(self._BUFFER[1], 8-port)
 
-            i2c.write(bytearray([_GPIO])+inbuf)
+            i2c.write(self._BUFFER, end=2)
 
 
     def get_port_remap(self):
