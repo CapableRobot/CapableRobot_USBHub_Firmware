@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import time
 from micropython import const
 from adafruit_bus_device.i2c_device import I2CDevice
 
@@ -37,16 +38,21 @@ class TLC59116:
         self.state = [0]*_NUM_LEDS
         self.configure(**kwargs)
 
-    def _write_register(self, address, xbytes):
+    def _write_register(self, address, xbytes, max_attempts=5):
         ## Ensure that payload doesn't overflow byte boundry
         xbytes = [min(255,v) for v in xbytes]
         
-        try:
-            with self.i2c_device as i2c:
-                i2c.write(bytearray([address]+xbytes))
-            return True
-        except OSError:
-            return False
+        attempts = 0
+        while attempts < max_attempts:
+            attempts += 1
+            try:
+                with self.i2c_device as i2c:
+                    i2c.write(bytearray([address]+xbytes))
+                return True
+            except OSError:
+                time.sleep(0.01)
+                if attempts >= max_attempts:
+                    return False
 
     # pylint: disable=too-many-arguments
     def configure(self,
