@@ -54,6 +54,21 @@ upstream_timeout = 30
 upstream_state = 'reset'
 upstream_last_time = boot_time
 
+
+def reset():
+    usb.reset()
+    usb.configure()
+    usb.set_mcp_config()
+
+    ## Light the host data LED orange to show the reset is occuring
+    led_data.rgb(0, (LED_BRIGHT,int(LED_BRIGHT/2),0), update=True)
+    time.sleep(0.5)
+
+    ## Reset the upstream timeout to ensure that the next
+    ## reset can only occurs after the specified timeout
+    upstream_state = 'reset'
+    upstream_last_time = time.monotonic()
+
 while True:
     time.sleep(usb.config["loop_delay"])
     
@@ -65,16 +80,21 @@ while True:
 
     if usb.config["external_heartbeat"]:
         if led3.value:
-            led_data.aux(0)
+            led_data.aux(0, update=False)
         else:
-            led_data.aux(250)
+            led_data.aux(250, update=False)
     elif led3.value:
         ## If the configuration was changed while the LED is on, 
-        ## we still need to turn it off
-        led_data.aux(0)
+        ## we still need to turn it off when the next update happens.
+        led_data.aux(0, update=False)
 
 
     data_state = usb.data_state()
+
+    if data_state is None and usb.config["reset_on_i2c_fault"]:
+        stdout("--- RESET DUE TO I2C BUS DOWN ---")
+        reset()
+        continue
 
     ## Set the data LEDs based on the detected per-port speeds
     for idx, speed in enumerate(usb.speeds):
@@ -104,11 +124,17 @@ while True:
 
     led_data.update()
 
-
     power_state = usb.power_state()
 
     ## Set the power LEDs based on the measured per-port current
-    for idx, current in enumerate(ucs.currents(raw=True, rescale=2)):
+    currents = ucs.currents(raw=True, rescale=2)
+
+    if len(currents) == 0 and usb.config["reset_on_i2c_fault"]:
+        stdout("--- RESET DUE TO I2C BUS DOWN ---")
+        reset()
+        continue
+
+    for idx, current in enumerate(currents):
 
         ## With rescaling, raw reading may be above 255 (max value for LED), so cap it
         if current > 255:
@@ -130,19 +156,7 @@ while True:
 
     if upstream_state == 'down' and time.monotonic() - upstream_last_time > upstream_timeout:
         stdout("--- RESET DUE TO LINK LOSS ---")
-
-        usb.reset()
-        usb.configure()
-        usb.set_mcp_config()
-
-        ## Light the host data LED orange to show the reset is occuring
-        led_data.rgb(0, (LED_BRIGHT,int(LED_BRIGHT/2),0), update=True)
-        time.sleep(0.5)
-        
-        ## Reset the upstream timeout to ensure that the next
-        ## reset can only occurs after the specified timeout
-        upstream_state = 'reset'
-        upstream_last_time = time.monotonic()
+        reset()
 
 
 

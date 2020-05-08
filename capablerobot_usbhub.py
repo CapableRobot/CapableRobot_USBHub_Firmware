@@ -193,7 +193,8 @@ class USBHub:
             highspeed_disable = False,
             loop_delay = 0.1,
             external_heartbeat = False, 
-            force = False
+            force = False,
+            reset_on_i2c_fault = True
         )
         self._update_config_from_ini()
 
