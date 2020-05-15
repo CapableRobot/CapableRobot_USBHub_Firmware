@@ -194,10 +194,11 @@ class USBHub:
             loop_delay = 0.1,
             external_heartbeat = False, 
             force = False,
-            reset_on_i2c_fault = True
+            reset_on_delay = True
         )
         self._update_config_from_ini()
 
+        self._last_poll_time = None
 
         ## Here we are using the port remapping to determine if the hub IC
         ## has been previously configured.  If so, we don't need to reset
@@ -499,6 +500,8 @@ class USBHub:
         self.set_memory(_CMD_SET, name, value)
 
     def poll_for_host_comms(self):
+        poll_time = time.monotonic()
+
         cmd, name, value = self.get_memory()
         
         if cmd == _CMD_GET:
@@ -527,6 +530,12 @@ class USBHub:
             stdout("Saving configuration to INI file")
             result = self._save_config_to_ini()
             self.set_memory(_CMD_SAVE, 0, result)
+
+        if self._last_poll_time is not None and self.config["reset_on_delay"]:
+            if poll_time - self._last_poll_time > self.config["loop_delay"] * 4:
+                raise RuntimeError("Excessive loop delay") 
+
+        self._last_poll_time = poll_time
 
 
     def set_port_swap(self, values=[False, False, False, False, False]):

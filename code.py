@@ -73,7 +73,12 @@ while True:
     time.sleep(usb.config["loop_delay"])
     
     ## Look for data from the Host computer via special USB4715 registers
-    usb.poll_for_host_comms()
+    try:
+        usb.poll_for_host_comms()
+    except RuntimeError:
+        stdout(time.monotonic(), "--- RESET due to loop delay ---")
+        reset()
+        continue
         
     ## Internal heartbeat LED
     led3.value = not led3.value
@@ -91,9 +96,7 @@ while True:
 
     data_state = usb.data_state()
 
-    if data_state is None and usb.config["reset_on_i2c_fault"]:
-        stdout("--- RESET DUE TO I2C BUS DOWN ---")
-        reset()
+    if data_state is None:
         continue
 
     ## Set the data LEDs based on the detected per-port speeds
@@ -128,11 +131,6 @@ while True:
 
     ## Set the power LEDs based on the measured per-port current
     currents = ucs.currents(raw=True, rescale=2)
-
-    if len(currents) == 0 and usb.config["reset_on_i2c_fault"]:
-        stdout("--- RESET DUE TO I2C BUS DOWN ---")
-        reset()
-        continue
 
     for idx, current in enumerate(currents):
 
