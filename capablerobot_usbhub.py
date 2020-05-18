@@ -540,6 +540,8 @@ class USBHub:
 
         self._last_poll_time = poll_time
 
+    def set_last_poll_time(self, poll_time):
+        self._last_poll_time = poll_time        
 
     def set_port_swap(self, values=[False, False, False, False, False]):
         value = 0

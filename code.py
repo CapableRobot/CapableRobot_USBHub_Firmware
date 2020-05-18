@@ -69,6 +69,8 @@ def reset():
     upstream_state = 'reset'
     upstream_last_time = time.monotonic()
 
+    usb.set_last_poll_time(time.monotonic())
+
 while True:
     time.sleep(usb.config["loop_delay"])
     
