@@ -533,6 +533,9 @@ class USBHub:
 
         if self._last_poll_time is not None and self.config["reset_on_delay"]:
             if poll_time - self._last_poll_time > self.config["loop_delay"] * 4:
+                ## Still need to reset history, otherwise RuntimeError will be 
+                ## continously raised once the first delay occurs.
+                self._last_poll_time = poll_time
                 raise RuntimeError("Excessive loop delay") 
 
         self._last_poll_time = poll_time
