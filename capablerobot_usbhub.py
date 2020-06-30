@@ -367,7 +367,11 @@ class USBHub:
 
         ## Sleep here is needed to allow the I2C2 bus to resume normal state.
         ## If communications are attempted immediately, the MCU will see a low SCL pin.
-        time.sleep(0.05)
+        ## 
+        ## After reporting this unexpected behavior to Microchip, they recommended increasing 
+        ## the delay (prior to starting I2C traffic) to 100 ms.  This guarantees the controller
+        ## inside the USB4715 to completes internal processes and will not hang the I2C bus.
+        time.sleep(0.1)
 
 
     def upstream(self, state):
