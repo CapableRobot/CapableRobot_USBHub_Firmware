@@ -109,8 +109,8 @@ def _process_find_key(name):
         return "loop_delay"
     
     if name == _CFG_EXTERNAL_HEARTBEAT:
-        return "external_heartbeat"
-
+        return "external_heartbeat" 
+    
     return None
 
 def _register_length(addr):
@@ -194,7 +194,7 @@ class USBHub:
             loop_delay = 0.1,
             external_heartbeat = False, 
             force = False,
-            reset_on_delay = True
+            reset_on_delay = False
         )
         self._update_config_from_ini()
 
@@ -536,7 +536,7 @@ class USBHub:
             self.set_memory(_CMD_SAVE, 0, result)
 
         if self._last_poll_time is not None and self.config["reset_on_delay"]:
-            if poll_time - self._last_poll_time > self.config["loop_delay"] * 4:
+            if poll_time - self._last_poll_time > self.config["loop_delay"] * 10:
                 ## Still need to reset history, otherwise RuntimeError will be 
                 ## continously raised once the first delay occurs.
                 self._last_poll_time = poll_time
@@ -710,9 +710,9 @@ class USBHub:
             ## Bits 3:0 mapping:
             ##  0b000 : Port power is disabled
             ##  0b001 : Port is on if USB2 port power is on
-            ##  0b010 : Port is on if designated GPIO is on
+            ##  0b100 : Port is on if designated GPIO is on
 
-            ## Upstream disconnect and downstream connection cause 0b010
+            ## Upstream disconnect and downstream connection cause 0b100
             ## So, we need to check for value > 0 (not just bit 0) to determine
             ## if port power is on or not.
             out.append((data & 0b111) > 0)
