@@ -132,9 +132,10 @@ while True:
     power_state = usb.power_state()
 
     ## Set the power LEDs based on the measured per-port current
-    currents = ucs.currents(raw=True, rescale=2)
+    ucs_currents = ucs.currents(raw=True, rescale=2)
+    ucs_status = ucs.status()
 
-    for idx, current in enumerate(currents):
+    for idx, current in enumerate(ucs_currents):
 
         ## With rescaling, raw reading may be above 255 (max value for LED), so cap it
         if current > 255:
@@ -146,6 +147,12 @@ while True:
             if power_state[idx-1] == False:
                 ## If port power is disabled, light the LED orange
                 color = (LED_BRIGHT,int(LED_BRIGHT/2),0)
+            elif "ERR" in ucs_status[idx-1] or "ALERT" in ucs_status[idx-1]:
+                ## UCS is reporting an alert, light the LED red
+                color = (LED_BRIGHT,0,0)
+            elif "CC" in ucs_status[idx-1]:
+                ## UCS is reporting constant current mode, light the LED green
+                color = (0,LED_BRIGHT,0)
             else:
                 ## Otherwise, light blue with intensity based on measured power draw
                 color = (0,0,current)
