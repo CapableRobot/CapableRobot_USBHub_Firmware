@@ -62,7 +62,7 @@ class UCS2113:
             attempts += 1
             try:
                 with self.i2c_device as i2c:
-                    i2c.write_then_readinto(bytes([register]), result, in_end=length, stop=False)
+                    i2c.write_then_readinto(bytes([register]), result, in_end=length)
                 break
             except OSError:
                 time.sleep(0.01)

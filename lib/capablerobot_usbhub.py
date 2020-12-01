@@ -272,7 +272,7 @@ class USBHub:
             i2c.write(_CFG_REG_CMD)
 
             ## Access the part of memory where our data is
-            i2c.write_then_readinto(bytearray([0x00, 0x06]), inbuf, stop=False)
+            i2c.write_then_readinto(bytearray([0x00, 0x06]), inbuf)
 
         ## First byte is the length of the rest of the message.
         ## We don't want to return that to the caller
