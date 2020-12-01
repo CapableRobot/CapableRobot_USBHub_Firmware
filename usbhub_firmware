@@ -50,7 +50,8 @@ def file_to_version(path):
 @cli.command()
 @click.option('--version', default=None, help='Version to install')
 @click.argument('drive')
-def upgrade(drive, version):
+def circuitpython(drive, version):
+    """ Reflash MCU with a different version of Circuitpython """
 
     if not os.path.exists(drive):
         print("Specified drive '{}' does not exist".format(drive))
