@@ -5,6 +5,23 @@ import shutil
 
 import click
 
+def wait_for_file(path):
+    while not os.path.exists(path):
+        time.sleep(0.1)
+    time.sleep(0.5)
+
+def wait_for_circuitpy(drive):
+    if "USBHUBBOOT" in drive:
+        wait_for_file(drive.replace("USBHUBBOOT", "CIRCUITPY"))
+    else:
+        wait_for_file(os.path.join("{}/boot_out.txt".format(drive)))
+
+def wait_for_bootloader(drive):
+    if "CIRCUITPY" in drive:
+        wait_for_file(drive.replace("CIRCUITPY", "USBHUBBOOT"))
+    else:
+        wait_for_file(os.path.join("{}/INFO_UF2.TXT".format(drive)))
+
 def do_file_update(src_path, dst_path):
     
     if not os.path.exists(dst_path):
@@ -15,8 +32,8 @@ def do_file_update(src_path, dst_path):
 
     return False
 
-def upgrade_circuitpython(code_drive, uf2_version, uf2_file):
-    code_file = os.path.join(code_drive, "code.py")
+def upgrade_circuitpython(drive, uf2_version, uf2_file):
+    code_file = os.path.join(drive, "code.py")
     code_backup = "{}.bkp".format(code_file)
     print("... rebooting into CircuitPython Bootloader")
     os.rename(code_file, code_backup)
@@ -34,19 +51,11 @@ def upgrade_circuitpython(code_drive, uf2_version, uf2_file):
         handle.write("    microcontroller.on_next_reset(microcontroller.RunMode.BOOTLOADER)\n")
         handle.write("    microcontroller.reset()\n")
 
-    bootloader_drive = code_drive.replace("CIRCUITPY", "USBHUBBOOT")
-
-    while not os.path.exists(bootloader_drive):
-        time.sleep(0.1)
-    time.sleep(0.5)
-
+    wait_for_bootloader(drive)
     print("... installing CircuitPython via UF2 file")
-    shutil.copy(uf2_file, bootloader_drive)    
+    shutil.copy(uf2_file, drive.replace("CIRCUITPY", "USBHUBBOOT"))    
 
-    while not os.path.exists(code_drive):
-        time.sleep(0.1)
-    time.sleep(0.5)
-
+    wait_for_circuitpy(drive)
     print("... restoring code.py file")
     os.rename(code_backup, code_file)
 
