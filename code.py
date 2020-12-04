@@ -49,8 +49,6 @@ stdout("Unit SKU : %s" % eeprom.sku)
 stdout("  Serial : %s" % eeprom.serial)
 stdout()
 
-## Seconds that upstream link can be down before resetting the hub
-upstream_timeout = 30
 upstream_state = 'reset'
 upstream_last_time = boot_time
 
@@ -163,9 +161,10 @@ while True:
 
     led_pwr.update()
 
-    if upstream_state == 'down' and time.monotonic() - upstream_last_time > upstream_timeout:
-        stdout("--- RESET DUE TO LINK LOSS ---")
-        reset()
+    if usb.config['reset_on_link_loss'] and upstream_state == 'down':
+        if time.monotonic() - upstream_last_time > usb.config['link_loss_delay']:
+            stdout("--- RESET DUE TO LINK LOSS ---")
+            reset()
 
 
 

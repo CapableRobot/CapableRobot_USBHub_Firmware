@@ -94,6 +94,9 @@ _CFG_CYPY_PATCH         = const(0x04)
 _CFG_HIGHSPEED_DISABLE  = const(0x10)
 _CFG_LOOP_DELAY         = const(0x11)
 _CFG_EXTERNAL_HEARTBEAT = const(0x12)
+_CFG_RESET_ON_DELAY     = const(0x13)
+_CFG_RESET_ON_LINK_LOSS = const(0x14)
+_CFG_LINK_LOSS_DELAY    = const(0x15)
 
 # pylint: enable=bad-whitespace
 
@@ -110,6 +113,17 @@ def _process_find_key(name):
     
     if name == _CFG_EXTERNAL_HEARTBEAT:
         return "external_heartbeat" 
+
+    if name == _CFG_RESET_ON_DELAY:
+        return "reset_on_delay" 
+
+    ## Flag to set of the Hub will reset the USB4715 if a upstream link loss is detected
+    if name == _CFG_RESET_ON_LINK_LOSS:
+        return "reset_on_link_loss" 
+
+    ## Seconds that upstream link can be down before resetting the hub
+    if name == _CFG_LINK_LOSS_DELAY:
+        return "link_loss_delay" 
     
     return None
 
@@ -194,7 +208,9 @@ class USBHub:
             loop_delay = 0.1,
             external_heartbeat = False, 
             force = False,
-            reset_on_delay = False
+            reset_on_delay = False,
+            reset_on_link_loss = True,
+            link_loss_delay = 30
         )
         self._update_config_from_ini()
 
