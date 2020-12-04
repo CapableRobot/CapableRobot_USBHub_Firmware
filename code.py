@@ -56,6 +56,8 @@ upstream_last_time = boot_time
 
 
 def reset():
+    global upstream_state, upstream_last_time
+    
     usb.reset()
     usb.configure()
     usb.set_mcp_config()
