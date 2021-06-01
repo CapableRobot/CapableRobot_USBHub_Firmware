@@ -32,6 +32,8 @@ from micropython import const
 
 from adafruit_bus_device.i2c_device import I2CDevice
 
+import capablerobot_eeprom
+
 # pylint: disable=bad-whitespace
 __version__     = const(0x01)
 
@@ -59,6 +61,15 @@ _POWER_SELECT_2 = const(0x3C04)
 _POWER_SELECT_3 = const(0x3C08)
 _POWER_SELECT_4 = const(0x3C0C)
 _CHARGE_CONFIG  = const(0x343C)
+
+
+## Registers here are under BFD2 base address
+_MANUF_DESC       = const(0x3204)
+_PRODUCT_DESC     = const(0x3244)
+_MANUF_DESC_LEN   = const(0x346A)
+_PRODUCT_DESC_LEN = const(0x3472)
+
+_MANUF_STRING   = "Capable Robot Components"
   
 _CFG_REG_CMD      = bytearray([0x99, 0x37, 0x00])
 _DEFAULT_PORT_MAP = [1, 2, 3, 4]
@@ -85,6 +96,7 @@ _CMD_RESET_BOOTLOADER = const(0x02)
 ## by the value here upon receipt / transmission.
 _FLOAT_SCALE = 100
 _FLOAT_KEYS = ["loop_delay"]
+_STRING_KEYS = ["descriptor_custom"]
 
 _CFG_FIRMWARE_VERSION   = const(0x01)
 _CFG_CYPY_MAJOR         = const(0x02)
@@ -97,6 +109,12 @@ _CFG_EXTERNAL_HEARTBEAT = const(0x12)
 _CFG_RESET_ON_DELAY     = const(0x13)
 _CFG_RESET_ON_LINK_LOSS = const(0x14)
 _CFG_LINK_LOSS_DELAY    = const(0x15)
+_CFG_DESCRIPTOR_CONFIG  = const(0x16)
+_CFG_DESCRIPTOR_CUSTOM  = const(0x17)
+
+_DESCRIPTOR_MPN_REV_SERIAL = const(0x00)
+_DESCRIPTOR_MPN_REV        = const(0x01)
+_DESCRIPTOR_CUSTOM         = const(0x02)
 
 # pylint: enable=bad-whitespace
 
@@ -124,6 +142,12 @@ def _process_find_key(name):
     ## Seconds that upstream link can be down before resetting the hub
     if name == _CFG_LINK_LOSS_DELAY:
         return "link_loss_delay" 
+
+    if name == _CFG_DESCRIPTOR_CONFIG:
+        return "descriptor_config"
+
+    if name == _CFG_DESCRIPTOR_CUSTOM:
+        return "descriptor_custom"
     
     return None
 
@@ -135,6 +159,12 @@ def _register_length(addr):
         return 2
 
     return 1
+
+def _register_base_address_lsb(addr):
+    if addr in [_MANUF_DESC, _PRODUCT_DESC, _MANUF_DESC_LEN, _PRODUCT_DESC_LEN]:
+        return 0xD2
+
+    return 0x80
 
 def _generate_crc(data):
     crc = _CRC8_INIT
@@ -149,7 +179,27 @@ def _generate_crc(data):
 
     return crc & 0xFF
 
-def bytearry_to_int(b, lsb_first=True):
+def _string_to_utf16le(string):
+    out = bytearray(len(string)*2)
+
+    for idx,c in enumerate(string):
+        out[idx*2] = ord(c)
+
+    return list(out)
+
+def _utf16le_to_string(data):
+    out = ""
+
+    for idx in range(len(data)/2):
+        out += chr(data[idx*2])
+
+    return out
+
+def _bytearry_to_bcd(b):
+    bcd = list(b)
+    return "{:02x}.{:02x}".format(bcd[1], bcd[0])
+
+def _bytearry_to_int(b, lsb_first=True):
     if lsb_first:
         x = 0
         shift = 0
@@ -201,6 +251,7 @@ class USBHub:
 
         self.i2c_device = I2CDevice(i2c2_bus, _I2C_ADDR_USB, probe=False)
         self.mcp_device = I2CDevice(i2c1_bus, _I2C_ADDR_MCP, probe=False)
+        self.eeprom = capablerobot_eeprom.EEPROM(i2c1_bus, '24AA025E48')
 
         ## Load default configuration and then check filesystem for INI file to update it
         self.config = dict(
@@ -210,7 +261,9 @@ class USBHub:
             force = False,
             reset_on_delay = False,
             reset_on_link_loss = True,
-            link_loss_delay = 30
+            link_loss_delay = 30,
+            descriptor_config = _DESCRIPTOR_MPN_REV_SERIAL,
+            descriptor_custom = ''
         )
         self._update_config_from_ini()
 
@@ -236,9 +289,9 @@ class USBHub:
             self.configure()
             self.set_mcp_config()
 
-    def _write_register(self, address, xbytes):
+    def _write_register(self, address, xbytes, do_register_length_check=True):
 
-        if len(xbytes) != _register_length(address):
+        if do_register_length_check and len(xbytes) != _register_length(address):
             raise ValueError("Incorrect payload length for register %d" % address)
 
         ## 2 bytes for 'write' and count
@@ -253,7 +306,7 @@ class USBHub:
             length, # Length of rest of packet
             0x00,   # Write configuration register
             len(xbytes) & 0xFF, # Will be writing N bytes (later)
-            0xBF, 0x80,
+            0xBF, _register_base_address_lsb(address),
             (address >> 8) & 0xFF, address & 0xFF
         ]
 
@@ -264,8 +317,9 @@ class USBHub:
             ## Execute the Configuration Register Access command
             i2c.write(_CFG_REG_CMD)
 
-    def _read_register(self, address):
-        length = _register_length(address)
+    def _read_register(self, address, length=0):
+        if length == 0:
+            length = _register_length(address)
 
         ## Prepare the pre-amble
         out = [
@@ -274,7 +328,7 @@ class USBHub:
             0x06, # Length of rest of packet
             0x01, # Read configuration register
             length & 0xFF, # Will be reading N bytes (later)
-            0xBF, 0x80,
+            0xBF, _register_base_address_lsb(address),
             (address >> 8) & 0xFF, address & 0xFF
         ]
 
@@ -305,16 +359,23 @@ class USBHub:
 
     @property
     def vendor_id(self):
-        return bytearry_to_int(self._read_register(_VENDOR_ID))
+        return _bytearry_to_int(self._read_register(_VENDOR_ID))
 
     @property
     def product_id(self):
-        return bytearry_to_int(self._read_register(_PRODUCT_ID))
+        return _bytearry_to_int(self._read_register(_PRODUCT_ID))
+
+    ## bcdDevice is R/W during CFG_SOC, but is written to during
+    ## the CFG_OTP stage of the boot process, meaning that any 
+    ## writes to this register prior to attach will be lost.  
+    @property
+    def device_id(self):
+        return _bytearry_to_bcd(self._read_register(_DEVICE_ID))
 
     @property
     def speeds(self):
-        conn = bytearry_to_int(self._read_register(_CONNECTION))
-        speed = bytearry_to_int(self._read_register(_DEVICE_SPEED))
+        conn = _bytearry_to_int(self._read_register(_CONNECTION))
+        speed = _bytearry_to_int(self._read_register(_DEVICE_SPEED))
 
         out = [0]*5
 
@@ -369,15 +430,17 @@ class USBHub:
         
         self.set_hub_config_1(highspeed_disable=highspeed_disable, multitt_enable=True)
 
-        ## Reverse DP/DM pints of  upstream port and ports 3 & 4
+        ## Reverse DP/DM pints of upstream port and ports 3 & 4
         self.set_port_swap(values=[True, False, False, True, True])
         self.set_hub_control(lpm_disable=True)
-        self.set_hub_config_3(port_map_enable=True)
+        self.set_hub_config_3(port_map_enable=True, string_descriptor_enable=True)
 
         ## Remap ports so that case physcial markings match the USB
         self.set_port_remap(ports=_CUSTOM_PORT_MAP)
 
         self.set_charging_config()
+        
+        self.set_hub_descriptors()
 
         self.attach()
 
@@ -388,6 +451,11 @@ class USBHub:
         ## the delay (prior to starting I2C traffic) to 100 ms.  This guarantees the controller
         ## inside the USB4715 to completes internal processes and will not hang the I2C bus.
         time.sleep(0.1)
+
+        ## Set the device id (available via the bcdDevice USB descriptor) to "C.REV" where REV 
+        ## is pulled from the Hub's EEPROM.  This allows the host-side driver to determine the
+        ## Hub hardware revision, which is need for some monitoring functions and operations.
+        self.set_device_id()
 
 
     def upstream(self, state):
@@ -413,8 +481,12 @@ class USBHub:
 
                     if key in _FLOAT_KEYS:
                         value = float(value) / _FLOAT_SCALE
-                    else:
-                        value = int(value)
+                    elif key not in _STRING_KEYS:
+                        try:
+                            value = int(value)
+                        except ValueError:
+                            stdout("Error in unpacking key {}".format(key))
+                            pass 
 
                     stdout("  ", key, "=", value)
                     self.config[key] = value
@@ -442,9 +514,9 @@ class USBHub:
             for key, value in self.config.items():
                 if key in _FLOAT_KEYS:
                     value = round(value * _FLOAT_SCALE)
-                else:
+                elif key not in _STRING_KEYS:
                     value = int(value)
-                f.write(key + "=" + str(value) + "\r\n")
+                f.write(key + " = " + str(value) + "\r\n")
         
         stdout("INI file written")
 
@@ -599,6 +671,35 @@ class USBHub:
 
         self._write_register(_HUB_CONFIG_3, [value])
 
+    def get_hub_string_descriptor(self, address):
+        length = self._read_register(address)[0]
+        value = self._read_register(address, length)
+        return _utf16le_to_string(value[2:])
+
+    def set_hub_descriptors(self):
+        
+        ## Set the manufacturer name
+        string_data = _string_to_utf16le(_MANUF_STRING)
+        data = [len(string_data)+2, 0x03] + string_data
+        self._write_register(_MANUF_DESC, data, do_register_length_check=False)
+        self._write_register(_MANUF_DESC_LEN, [len(string_data)+2])
+
+        if self.config["descriptor_config"] == _DESCRIPTOR_CUSTOM:
+            product_string = self.config["descriptor_custom"]
+        elif self.config["descriptor_config"] == _DESCRIPTOR_MPN_REV:
+            product_string = self.eeprom.sku + "." + str(self.eeprom.revision)
+        else: 
+            product_string = self.eeprom.sku + "." + str(self.eeprom.revision) + " " + self.eeprom.serial
+
+        ## Set the product name based on the EEPROM data / data from config file
+        string_data = _string_to_utf16le(product_string)
+        data = [len(string_data)+2, 0x03] + string_data
+        self._write_register(_PRODUCT_DESC, data, do_register_length_check=False)
+        self._write_register(_PRODUCT_DESC_LEN, [len(string_data)+2])
+
+    def set_device_id(self):
+        self._write_register(_DEVICE_ID, [self.eeprom.revision, ord("C")])
+
     def set_port_remap(self, ports=[1, 2, 3, 4]):
         self.remap = ports
 
@@ -712,8 +813,8 @@ class USBHub:
 
 
     def get_port_remap(self):
-        port12 = bytearry_to_int(self._read_register(_REMAP_12))
-        port34 = bytearry_to_int(self._read_register(_REMAP_34))
+        port12 = _bytearry_to_int(self._read_register(_REMAP_12))
+        port34 = _bytearry_to_int(self._read_register(_REMAP_34))
 
         return [port12 & 0x0F, (port12 >> 4) & 0x0F, port34 & 0x0F, (port34 >> 4) & 0x0F]
 

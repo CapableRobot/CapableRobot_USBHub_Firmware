@@ -8,7 +8,6 @@ import supervisor
 
 import capablerobot_usbhub
 import capablerobot_tlc59116
-import capablerobot_eeprom
 import capablerobot_ucs2113
 
 boot_time = time.monotonic()
@@ -43,10 +42,10 @@ BRIGHT   = 20
 led_pwr  = capablerobot_tlc59116.TLC59116(i2c1, 0x61, pwm=BRIGHT)
 led_data = capablerobot_tlc59116.TLC59116(i2c1, 0x62, pwm=BRIGHT)
 
-eeprom = capablerobot_eeprom.EEPROM(i2c1, '24AA025E48')
 stdout()
-stdout("Unit SKU : %s" % eeprom.sku)
-stdout("  Serial : %s" % eeprom.serial)
+stdout("Unit SKU : %s" % usb.eeprom.sku)
+stdout("Revision : %s" % usb.eeprom.revision)
+stdout("  Serial : %s" % usb.eeprom.serial)
 stdout()
 
 upstream_state = 'reset'
