@@ -88,7 +88,7 @@ class EEPROM:
 
     @property
     def serial(self):
-        return self.eui
+        return self.eui[10:]
 
     @property
     def sku(self):
@@ -100,3 +100,12 @@ class EEPROM:
             return 'CRR3C4'
 
         return ''.join([chr(v) for v in data])
+
+    @property
+    def revision(self):
+        value = self.read(0x06, 0x01)[0]
+
+        if value == 255:
+            return 0
+
+        return value
