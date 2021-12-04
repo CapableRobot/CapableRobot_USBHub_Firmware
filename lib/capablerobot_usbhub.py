@@ -272,6 +272,7 @@ class USBHub:
 
         self._last_poll_time = None
         self._pcb_revision = None
+        self._power_control_registers = None
 
         ## Here we are using the port remapping to determine if the hub IC
         ## has been previously configured.  If so, we don't need to reset
@@ -860,11 +861,24 @@ class USBHub:
 
         return [port12 & 0x0F, (port12 >> 4) & 0x0F, port34 & 0x0F, (port34 >> 4) & 0x0F]
 
+    def power_control_register(self, port):
+        if self._power_control_registers is None:
+            # Interconnect between Hub IC power control pins and downstream power control devices
+            # changed between REV 1 and REV 2. Therefore, we have to look at the hardware revision 
+            # to know which register controls which physical port (even though the logical data 
+            # connection to the Hub IC did not change between REV 1 and REV 2)
+            if self.unit_revision >= 2:
+                self._power_control_registers = [_POWER_SELECT_1+(port-1)*4 for port in [3,1,4,2]]
+            else:
+                self._power_control_registers = [_POWER_SELECT_1+(port-1)*4 for port in [1,2,3,4]]
+
+        return self._power_control_registers[port]
+
     def power_state(self, ports=[1,2,3,4]):
         out = []
 
         for port in ports:
-            data = self._read_register(_POWER_SELECT_1+(port-1)*4)[0]
+            data = self._read_register(self.power_control_register(port-1))[0]
 
             ## Bits 3:0 mapping:
             ##  0b000 : Port power is disabled
