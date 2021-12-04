@@ -116,6 +116,9 @@ _DESCRIPTOR_MPN_REV_SERIAL = const(0x00)
 _DESCRIPTOR_MPN_REV        = const(0x01)
 _DESCRIPTOR_CUSTOM         = const(0x02)
 
+_PCBREV_VALUES = [None, None, 32767]
+_PCBREV_TOLERANCE = 1000
+
 # pylint: enable=bad-whitespace
 
 def stdout(*args):
@@ -268,6 +271,7 @@ class USBHub:
         self._update_config_from_ini()
 
         self._last_poll_time = None
+        self._pcb_revision = None
 
         ## Here we are using the port remapping to determine if the hub IC
         ## has been previously configured.  If so, we don't need to reset
@@ -371,6 +375,44 @@ class USBHub:
     @property
     def device_id(self):
         return _bytearry_to_bcd(self._read_register(_DEVICE_ID))
+
+    @property
+    def unit_mpn(self):
+        return self.eeprom.sku
+
+    @property
+    def unit_sku(self):
+        return self.eeprom.sku
+
+    @property
+    def unit_revision(self):
+        if self._pcb_revision is None:
+            try:
+
+                pin_rev = analogio.AnalogIn(board.PCBREV)
+                values = [pin_rev.value for _ in range(10)]
+                
+                for idx, target in enumerate(_PCBREV_VALUES):
+                    if target is None:
+                        continue
+
+                    if min(values) > target - _PCBREV_TOLERANCE and max(values) < target + _PCBREV_TOLERANCE:
+                        # stdout("PCBREV pin reads {} to {}, REV is {}".format(min(values), max(values), idx))
+                        self._pcb_revision = idx
+
+            except AttributeError:
+                # stdout("No PCBREV pin defined")
+                pass
+
+            if self._pcb_revision is None:
+                # stdout("Falling back to EEPROM lookup")
+                self._pcb_revision = self.eeprom.revision
+
+        return self._pcb_revision
+
+    @property
+    def unit_serial(self):
+        return self.eeprom.serial
 
     @property
     def speeds(self):
@@ -687,9 +729,9 @@ class USBHub:
         if self.config["descriptor_config"] == _DESCRIPTOR_CUSTOM:
             product_string = self.config["descriptor_custom"]
         elif self.config["descriptor_config"] == _DESCRIPTOR_MPN_REV:
-            product_string = self.eeprom.sku + "." + str(self.eeprom.revision)
+            product_string = self.eeprom.sku + "." + str(self.unit_revision)
         else: 
-            product_string = self.eeprom.sku + "." + str(self.eeprom.revision) + " " + self.eeprom.serial
+            product_string = self.eeprom.sku + "." + str(self.unit_revision) + " " + self.eeprom.serial
 
         ## Set the product name based on the EEPROM data / data from config file
         string_data = _string_to_utf16le(product_string)
@@ -698,7 +740,7 @@ class USBHub:
         self._write_register(_PRODUCT_DESC_LEN, [len(string_data)+2])
 
     def set_device_id(self):
-        self._write_register(_DEVICE_ID, [self.eeprom.revision, ord("C")])
+        self._write_register(_DEVICE_ID, [self.unit_revision, ord("C")])
 
     def set_port_remap(self, ports=[1, 2, 3, 4]):
         self.remap = ports
