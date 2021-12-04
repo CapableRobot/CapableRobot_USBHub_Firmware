@@ -46,9 +46,15 @@ def get_bit(value, bit):
 
 class UCS2113:
 
-    def __init__(self, i2c, address=0x57):
+    def __init__(self, i2c, address=0x57, filter_threshold=5, filter_length=8):
         self.i2c_device = i2c_device.I2CDevice(i2c, address)
         self._buffer = bytearray(3)
+
+        self._filter_threshold = filter_threshold
+        self._filter_length = filter_length
+
+        self._ch1_history = [0] * self._filter_length
+        self._ch2_history = [0] * self._filter_length
 
     def _read_register_bytes(self, register, result, length=None, max_attempts=5):
         # Read the specified register address and fill the specified result byte
@@ -71,23 +77,44 @@ class UCS2113:
 
         return True
 
-    def currents(self, one=True, two=True, raw=False):
+    def currents(self, one=True, two=True, raw=False, filtered=True):
         out = []
+        value = None
 
         if one:
             success = self._read_register_bytes(_REG_PORT1_CURRENT, self._buffer)
             if not success:
                 return []
-            out.append(self._buffer[0])
+
+            value = int(self._buffer[0])
+            
+            self._ch1_history.pop(0)
+            self._ch1_history.append(value)
+            
+            if filtered and value < self._filter_threshold:
+                filter_mean = sum(self._ch1_history) / self._filter_length
+                out.append(filter_mean)
+            else:
+                out.append(value)
 
         if two:
             success = self._read_register_bytes(_REG_PORT2_CURRENT, self._buffer)
             if not success:
                 return []
-            out.append(self._buffer[0])
+
+            value = int(self._buffer[0])
+
+            self._ch2_history.pop(0)
+            self._ch2_history.append(value)
+
+            if filtered and value < self._filter_threshold:
+                filter_mean = sum(self._ch2_history) / self._filter_length
+                out.append(filter_mean)
+            else:
+                out.append(value)
 
         if raw:
-            return out
+            return [round(v) for v in out]
 
         return [float(v) * _MA_PER_BIT for v in out]
 
@@ -202,7 +229,7 @@ class Ports:
             out = [sum(out)] + out
 
         ## PCB has limit of 2.9A max (2.7A nominal) per port, which is a reading of 218
-        ## So, values here are scaled such taht 218 becomes 255
+        ## So, values here are scaled such that 218 becomes 255
         if rescale != 0:
             scale = float(255) / float(218) * rescale
             out = [int(float(v) * scale) for v in out]
