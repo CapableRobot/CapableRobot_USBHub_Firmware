@@ -43,9 +43,9 @@ led_pwr  = capablerobot_tlc59116.TLC59116(i2c1, 0x61, pwm=BRIGHT)
 led_data = capablerobot_tlc59116.TLC59116(i2c1, 0x62, pwm=BRIGHT)
 
 stdout()
-stdout("Unit SKU : %s" % usb.eeprom.sku)
-stdout("Revision : %s" % usb.eeprom.revision)
-stdout("  Serial : %s" % usb.eeprom.serial)
+stdout("Unit SKU : %s" % usb.unit_sku)
+stdout("Revision : %s" % usb.unit_revision)
+stdout("  Serial : %s" % usb.unit_serial)
 stdout()
 
 upstream_state = 'reset'
