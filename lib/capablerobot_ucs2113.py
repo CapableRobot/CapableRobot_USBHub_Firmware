@@ -28,6 +28,7 @@ _REG_PORT2_CURRENT = const(0x01)
 _REG_PORT_STATUS   = const(0x02)
 _REG_INTERRUPT1    = const(0x03)
 _REG_INTERRUPT2    = const(0x04)
+_REG_CURRENT_LIMIT = const(0x14)
 _REG_AUTO_RECOVERY = const(0x15)
 _REG_OC_BEHAVIOR1  = const(0x23)
 _REG_OC_BEHAVIOR2  = const(0x24)
@@ -56,6 +57,22 @@ class UCS2113:
         self._ch1_history = [0] * self._filter_length
         self._ch2_history = [0] * self._filter_length
 
+    def _write_register(self, address, xbytes, max_attempts=5):
+        ## Ensure that payload doesn't overflow byte boundry
+        xbytes = [min(255,v) for v in xbytes]
+        
+        attempts = 0
+        while attempts < max_attempts:
+            attempts += 1
+            try:
+                with self.i2c_device as i2c:
+                    i2c.write(bytearray([address]+xbytes))
+                return True
+            except OSError:
+                time.sleep(0.01)
+                if attempts >= max_attempts:
+                    return False
+
     def _read_register_bytes(self, register, result, length=None, max_attempts=5):
         # Read the specified register address and fill the specified result byte
         # array with result bytes.  Make sure result buffer is the desired size
@@ -76,6 +93,17 @@ class UCS2113:
                     return False
 
         return True
+
+    def get_power_limits(self):
+        success = self._read_register_bytes(_REG_CURRENT_LIMIT, self._buffer, length=1)
+
+        if not success:
+            return None
+
+        return self._buffer[0]
+
+    def set_power_limits(self, value):
+        self._write_register(_REG_CURRENT_LIMIT, [value])
 
     def currents(self, one=True, two=True, raw=False, filtered=True):
         out = []
@@ -207,6 +235,13 @@ class Ports:
         out = [ch12[0], ch12[1], ch34[0], ch34[1]]
 
         return out
+
+    def get_power_limits(self):
+        return [self.ch12.get_power_limits(), self.ch34.get_power_limits()]
+
+    def set_power_limits(self, port12, port34):
+        self.ch12.set_power_limits(port12)
+        self.ch34.set_power_limits(port34)
 
     def currents(self, ports=[1,2,3,4], total=True, raw=False, rescale=0):
         out = []

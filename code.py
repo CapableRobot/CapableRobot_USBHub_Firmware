@@ -8,7 +8,6 @@ import supervisor
 
 import capablerobot_usbhub
 import capablerobot_tlc59116
-import capablerobot_ucs2113
 
 boot_time = time.monotonic()
 
@@ -35,7 +34,6 @@ i2c2 = busio.I2C(board.SCL2, board.SDA2)
 
 stdout("... configuring hub ...")
 usb = capablerobot_usbhub.USBHub(i2c1, i2c2)
-ucs = capablerobot_ucs2113.Ports(i2c1)
 
 stdout("... configuring leds ...")
 BRIGHT   = 20
@@ -131,8 +129,8 @@ while True:
     power_state = usb.power_state()
 
     ## Set the power LEDs based on the measured per-port current
-    ucs_currents = ucs.currents(raw=True, rescale=2)
-    ucs_status = ucs.status()
+    ucs_currents = usb.power_measure(raw=True, rescale=2)
+    ucs_status = usb.power_errors()
 
     for idx, current in enumerate(ucs_currents):
 

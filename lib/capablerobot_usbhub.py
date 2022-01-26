@@ -33,14 +33,16 @@ from micropython import const
 from adafruit_bus_device.i2c_device import I2CDevice
 
 import capablerobot_eeprom
+import capablerobot_ucs2113
 
 # pylint: disable=bad-whitespace
-__version__     = const(0x01)
+__version__     = const(0x02)
 
 _I2C_ADDR_USB   = const(0x2D)
 _REVISION       = const(0x0000)
-_MEM_READ       = const(0x0914)
-_MEM_WRITE      = const(0x0924)
+_RMT_IDENT      = const(0x0904)
+_RMT_READ       = const(0x0914)
+_RMT_WRITE      = const(0x0924)
 _VENDOR_ID      = const(0x3000)
 _PRODUCT_ID     = const(0x3002)
 _DEVICE_ID      = const(0x3004)
@@ -98,10 +100,11 @@ _FLOAT_SCALE = 100
 _FLOAT_KEYS = ["loop_delay"]
 _STRING_KEYS = ["descriptor_custom"]
 
-_CFG_FIRMWARE_VERSION   = const(0x01)
-_CFG_CYPY_MAJOR         = const(0x02)
-_CFG_CYPY_MINOR         = const(0x03)
-_CFG_CYPY_PATCH         = const(0x04)
+_CFG_DATA_STATE         = const(0x05)
+# _CFG_POWER_ERRORS       = const(0x06)
+_CFG_POWER_LIMITS       = const(0x07)
+_CFG_POWER_MEASURE_12   = const(0x08)
+_CFG_POWER_MEASURE_34   = const(0x09)
 
 _CFG_HIGHSPEED_DISABLE  = const(0x10)
 _CFG_LOOP_DELAY         = const(0x11)
@@ -155,7 +158,7 @@ def _process_find_key(name):
     return None
 
 def _register_length(addr):
-    if addr in [_REVISION, _MEM_READ, _MEM_WRITE]:
+    if addr in [_REVISION, _RMT_IDENT, _RMT_READ, _RMT_WRITE]:
         return 4
 
     if addr in [_VENDOR_ID, _PRODUCT_ID, _DEVICE_ID, _POWER_STATE]:
@@ -255,6 +258,7 @@ class USBHub:
         self.i2c_device = I2CDevice(i2c2_bus, _I2C_ADDR_USB, probe=False)
         self.mcp_device = I2CDevice(i2c1_bus, _I2C_ADDR_MCP, probe=False)
         self.eeprom = capablerobot_eeprom.EEPROM(i2c1_bus, '24AA025E48')
+        self.ucs = capablerobot_ucs2113.Ports(i2c1_bus)
 
         ## Load default configuration and then check filesystem for INI file to update it
         self.config = dict(
@@ -293,6 +297,8 @@ class USBHub:
             self.reset()
             self.configure()
             self.set_mcp_config()
+
+        self.setup_host_comms()
 
     def _write_register(self, address, xbytes, do_register_length_check=True):
 
@@ -571,17 +577,17 @@ class USBHub:
     def set_memory(self, cmd, name=0, value=0):
         buf = [cmd << 5 | name, (value >> 8) & 0xFF, value & 0xFF]
         crc = _generate_crc(buf)
-        self._write_register(_MEM_WRITE, buf + [crc])
+        self._write_register(_RMT_WRITE, buf + [crc])
 
     def get_memory(self):
-        buf = self._read_register(_MEM_READ)
+        buf = self._read_register(_RMT_READ)
         crc = _generate_crc(buf[0:3])
 
         ## Check that the data is intact
         if crc == buf[3]:
 
             ## Clear the register so the host knows we got the request
-            self._write_register(_MEM_READ, [0,0,0,0])
+            self._write_register(_RMT_READ, [0,0,0,0])
 
             ## Parse request and pass to caller
             cmd   = buf[0] >> 5
@@ -594,14 +600,17 @@ class USBHub:
     def _process_host_get(self, name):
         value = None
 
-        if name == _CFG_FIRMWARE_VERSION:
-            value = __version__
-        elif name == _CFG_CYPY_MAJOR:
-            value = sys.implementation.version[0]
-        elif name == _CFG_CYPY_MINOR:
-            value = sys.implementation.version[1]
-        elif name == _CFG_CYPY_PATCH:
-            value = sys.implementation.version[2]
+        if name == _CFG_DATA_STATE:
+            value = self._read_mcp_register(_GPIO)
+        elif name == _CFG_POWER_MEASURE_12:
+            data = self.power_measure(ports=[1,2], raw=True, total=False)
+            value = data[0] + (data[1] << 8)
+        elif name == _CFG_POWER_MEASURE_34:
+            data = self.power_measure(ports=[3,4], raw=True, total=False)
+            value = data[0] + (data[1] << 8)
+        elif name == _CFG_POWER_LIMITS:
+            data = self.ucs.get_power_limits()
+            value = data[0] + (data[1] << 8)
         else:
             key = _process_find_key(name)
 
@@ -618,21 +627,33 @@ class USBHub:
         self.set_memory(_CMD_GET, name, value)
 
     def _process_host_set(self, name, value):
-        key = _process_find_key(name)
+        if name == _CFG_DATA_STATE:
+            value = self._write_mcp_register(_GPIO, value)
 
-        if key is None:
-            return
+        elif name == _CFG_POWER_LIMITS:
+            port12 = value & 0xFF
+            port34 = (value >> 8) & 0xFF
+            self.ucs.set_power_limits(port12, port34)
 
-        ## Convert from external representation to internal
-        if key in _FLOAT_KEYS:
-            value_internal = float(value) / _FLOAT_SCALE
         else:
-            value_internal = value
+            key = _process_find_key(name)
 
-        self.config[key] = value_internal
+            if key is None:
+                return
+
+            ## Convert from external representation to internal
+            if key in _FLOAT_KEYS:
+                value_internal = float(value) / _FLOAT_SCALE
+            else:
+                value_internal = value
+
+            self.config[key] = value_internal
 
         ## Expose the value to the host, so it knows the set is complete
         self.set_memory(_CMD_SET, name, value)
+
+    def setup_host_comms(self):
+        self._write_register(_RMT_IDENT, [__version__] + list(sys.implementation.version))
 
     def poll_for_host_comms(self):
         poll_time = time.monotonic()
@@ -823,6 +844,24 @@ class USBHub:
         
         return self._BUFFER[0]
 
+    def _write_mcp_register(self, addr, value, max_attempts=5):
+
+        attempts = 0
+        while attempts < max_attempts:
+            attempts += 1
+            try:
+                with self.mcp_device as i2c:
+                    self._BUFFER[0] = addr
+                    self._BUFFER[1] = value
+                    i2c.write(self._BUFFER, end=2)
+                break
+            except OSError:
+                time.sleep(0.01)
+                if attempts >= max_attempts:
+                    return None
+        
+        return self._BUFFER[1]
+
     def data_state(self):
         value = self._read_mcp_register(_GPIO)
 
@@ -899,6 +938,12 @@ class USBHub:
     def power_enable(self, ports=[]):
         for port in ports:
             self._write_register(_POWER_SELECT_1+(port-1)*4, [0x81])
+
+    def power_measure(self, ports=[1,2,3,4], total=True, raw=False, rescale=0):
+        return self.ucs.currents(ports=ports, total=total, raw=raw, rescale=rescale)
+
+    def power_errors(self):
+        return self.ucs.status()
 
     @property
     def rails(self):
