@@ -22,7 +22,7 @@
 
 from adafruit_bus_device.i2c_device import I2CDevice
 
-## Array of default addr, pages bytes per page, location of EUI
+## Array of default addr, addr size, pages, bytes per page, location of EUI
 EEPROMS = {}
 EEPROMS['24AA02E48']  = [0x50,  8, 32,  8, (0xFA, 0xFF)]
 EEPROMS['24AA025E48'] = [0x50,  8, 16, 16, (0xFA, 0xFF)]
