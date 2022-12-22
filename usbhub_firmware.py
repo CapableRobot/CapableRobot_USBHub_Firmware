@@ -32,13 +32,8 @@ def do_file_update(src_path, dst_path):
 
     return False
 
-def upgrade_circuitpython(drive, uf2_version, uf2_file):
-    code_file = os.path.join(drive, "code.py")
-    code_backup = "{}.bkp".format(code_file)
-    print("... rebooting into CircuitPython Bootloader")
-    os.rename(code_file, code_backup)
-
-    with open(code_file, 'w') as handle:
+def write_update_file(file_path, uf2_version):
+    with open(file_path, 'w') as handle:
         handle.write("import microcontroller\n")
         handle.write("import sys, time\n")
         handle.write("this_version = '.'.join([str(v) for v in sys.implementation.version])\n")
@@ -51,6 +46,17 @@ def upgrade_circuitpython(drive, uf2_version, uf2_file):
         handle.write("    microcontroller.on_next_reset(microcontroller.RunMode.BOOTLOADER)\n")
         handle.write("    microcontroller.reset()\n")
 
+def upgrade_circuitpython(drive, uf2_version, uf2_file):
+    code_file = os.path.join(drive, "code.py")
+    code_backup = "{}.bkp".format(code_file)
+    print("... backing up code.py file")
+    os.rename(code_file, code_backup)
+
+    print("... writing out upgrade stub")
+    write_update_file(code_file, uf2_version)
+
+    print("... rebooting into CircuitPython Bootloader")
+
     wait_for_bootloader(drive)
     print("... installing CircuitPython via UF2 file")
     shutil.copy(uf2_file, drive.replace("CIRCUITPY", "USBHUBBOOT"))    
@@ -58,6 +64,18 @@ def upgrade_circuitpython(drive, uf2_version, uf2_file):
     wait_for_circuitpy(drive)
     print("... restoring code.py file")
     os.rename(code_backup, code_file)
+
+
+def is_codepy_upgradefile(file_path):
+    with open(file_path) as f:
+        lastline = f.readlines()[-1].strip()
+    
+    if lastline == "microcontroller.reset()":
+        print("code.py is the upgrade stub")
+        return True
+
+    return False
+
 
 @click.group()
 def cli():
@@ -147,9 +165,9 @@ def firmware(main, force, drive):
             print("Skipping : {}".format(src_path))
 
     dst_path = "{}/code.py".format(drive)
-    if do_file_update(main, dst_path) or force:
+    if do_file_update(main, dst_path) or force or is_codepy_upgradefile(dst_path):
         print("Updating : code.py from {}".format(os.path.basename(main)))
-        shutil.copy(main, "{}/code.py".format(drive))
+        shutil.copy(main, dst_path)
     else:
         print("Skipping : code.py")
 
